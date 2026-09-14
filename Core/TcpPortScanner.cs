@@ -11,7 +11,6 @@ public sealed class TcpPortScanner(int maxConcurrency = 100, TimeSpan? timeout =
     public async Task<IReadOnlyList<PortScanResult>> ScanAsync(string host, IEnumerable<int> ports,
         CancellationToken cancellationToken = default)
     {
-
         IPAddress[] addresses = await Dns.GetHostAddressesAsync(host, cancellationToken);
         if (addresses.Length == 0)
         {
@@ -19,7 +18,7 @@ public sealed class TcpPortScanner(int maxConcurrency = 100, TimeSpan? timeout =
         }
 
         IPAddress ipAddress = addresses[0];
-        
+
         var results = new ConcurrentBag<PortScanResult>();
 
         var parallelOptions = new ParallelOptions
@@ -61,10 +60,6 @@ public sealed class TcpPortScanner(int maxConcurrency = 100, TimeSpan? timeout =
             return new PortScanResult(port, PortState.Filtered);
         }
         catch (OperationCanceledException) when (!outerToken.IsCancellationRequested)
-        {
-            return new PortScanResult(port, PortState.Filtered);
-        }
-        catch (Exception)
         {
             return new PortScanResult(port, PortState.Filtered);
         }
