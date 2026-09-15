@@ -431,3 +431,8 @@ FodyWeavers.xsd
 # JetBrains Rider override
 **/.idea/
 **/*.sln.iml
+
+# Custom local integration test settings
+**/appsettings.local.json
+*.local.json
+
