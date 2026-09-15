@@ -12,10 +12,6 @@ public sealed class TcpPortScanner(int maxConcurrency = 100, TimeSpan? timeout =
         CancellationToken cancellationToken = default)
     {
         IPAddress[] addresses = await Dns.GetHostAddressesAsync(host, cancellationToken);
-        if (addresses.Length == 0)
-        {
-            throw new ArgumentException("Not possible to resolve given host.", nameof(host));
-        }
 
         IPAddress ipAddress = addresses[0];
 
