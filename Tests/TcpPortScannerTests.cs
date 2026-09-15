@@ -7,7 +7,7 @@ namespace Tests;
 public class TcpPortScannerTests
 {
     [Fact]
-    public async Task ScanAsync_UnresolvableHost_ThrowsArgumentException()
+    public async Task ScanAsync_UnresolvableHost_ThrowsSocketException()
     {
         //Arrange
         var scanner = new TcpPortScanner();
@@ -15,7 +15,7 @@ public class TcpPortScannerTests
 
         //Act & Assert
         await Assert.ThrowsAsync<SocketException>(async () =>
-            await scanner.ScanAsync("thus-host-does-not-exist.invalid", ports));
+            await scanner.ScanAsync("this-host-does-not-exist.invalid", ports));
     }
 
     [Fact]
@@ -79,6 +79,7 @@ public class TcpPortScannerTests
     }
 
     [Fact]
+    [Trait("Category", "Integration")]
     public async Task ScanAsync_PortTimeout_ReturnFilteredState()
     {
         // Arrange: We use ultra short timeout and address that does not correspond
