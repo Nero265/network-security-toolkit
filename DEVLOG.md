@@ -74,4 +74,95 @@ Write it while it's fresh — don't leave it for "later", you'll forget details 
 
 ---
 
+## 2026-09-16 — Async Job Pattern Web API via Channels & BackgroundService
+
+**Branch:** `feature/scan-job-api`  
+**Issues/PRs:** #21/#27 
+
+**Work done:**
+- Implemented the **Async Job Pattern** endpoints (`POST /api/scan/tcp` and
+  `GET /api/scan/{id}/status`) to expose the TCP scanner via the Web API.
+- Created an immutable `ScanJob` model (`sealed record` with `init`-only
+  properties throughout, including `CreatedAt`) with `DateTimeOffset` for
+  precise, time-zone-aware timestamps.
+- Built a thread-safe `InMemoryScanJobStore` using `ConcurrentDictionary<Guid, ScanJob>`
+  for state management (Repository pattern — swappable for a SQLite/EF Core
+  implementation in Phase 2 without touching the controller).
+- Replaced the initial `Task.Run` fire-and-forget design with a
+  **producer-consumer architecture**: a FIFO queue (`IScanJobQueue` /
+  `ChannelScanJobQueue`) backed by `System.Threading.Channels` decouples job
+  submission from processing, and a hosted `BackgroundService`
+  (`ScanBackgroundWorker`) drains it sequentially — avoiding uncontrolled
+  thread-per-request spawning from the earlier `Task.Run` approach.
+- Added a full suite of xUnit lifecycle unit tests (`ScanJobLifecycleTests`)
+  covering state machine transitions (`Pending` → `Running` → `Completed`/`Failed`)
+  and not-found handling.
+- Added `StartPort <= EndPort` validation in the controller and configured
+  `JsonStringEnumConverter` so `ScanJobStatus` serializes as a string, not a
+  numeric value, in API responses.
+
+**Why / decisions:**
+- **BackgroundService + Channels over Task.Run**: `Task.Run` per request risks
+  thread pool starvation and unthrottled concurrent scans under load.
+  `System.Threading.Channels` (`SingleReader = true`, `SingleWriter = false`,
+  since multiple HTTP request threads can enqueue concurrently) decouples the
+  HTTP request from execution — a bounded, well-understood queue that a single
+  worker drains sequentially.
+- **Programming to `IScanJobStore` / `IScanJobQueue`**: both are Repository-pattern
+  abstractions. The controller and worker only know the interface; today's
+  backing implementation is in-memory, but swapping to SQLite/EF Core in
+  Phase 2 is a single-line DI registration change in `Program.cs`.
+- **`sealed` on new implementation classes**: enables the JIT to devirtualize
+  and inline calls when it can prove no derived type exists. Individually
+  small, but the .NET team seals nearly every internal class for this exact
+  reason — see Stephen Toub, ["Performance Improvements in .NET 6" — "Peanut Butter"](https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-6/#peanut-butter).
+- **`ValueTask` pass-through in `ChannelScanJobQueue`**: `EnqueueAsync`/`DequeueAsync`
+  return the channel's `ValueTask` directly rather than wrapping it in
+  `async`/`await`, avoiding an unnecessary compiler-generated state machine
+  for a simple pass-through operation.
+
+**Problems & solutions:**
+- *Problem (job stuck at `Running` forever on scan failure)*: in the first
+  draft of `ScanBackgroundWorker`, an exception thrown by `_portScanner.ScanAsync`
+  (e.g. a `SocketException` from an unresolvable host — already known to
+  happen from the 2026-09-14 entry) was only logged by the outer catch block;
+  `_jobStore.MarkFailed` was never called. The job silently stayed `Running`
+  indefinitely, and a client polling `GET /api/scan/{id}/status` never got a
+  definitive answer.
+  * *Solution*: wrapped the scan call in its own inner `try/catch`, scoped
+    specifically around `ScanAsync` → `MarkCompleted`, so any exception there
+    (other than `OperationCanceledException`, which signals shutdown) transitions
+    the job to `Failed` with the error message. The outer catch remains as a
+    safety net for unexpected failures elsewhere in the loop (e.g. the store
+    or logger itself failing).
+- *Dilemma (record value-equality vs. optimistic concurrency)*: `ScanJob` is a
+  `record`, which uses value-based `Equals`. An external CAS loop
+  (`while(true)` + `TryUpdate`) built on that equality is theoretically
+  susceptible to the ABA problem if state ever moved backward. Since the job
+  state machine is strictly monotonic (`Pending → Running → Completed/Failed`,
+  never reversed) this wasn't an exploitable bug in practice, but replaced the
+  manual loop with `ConcurrentDictionary.AddOrUpdate`, which performs the
+  read-transform-write atomically at the bucket level — shorter code and
+  removes the theoretical risk entirely.
+- *Problem (flaky time assertions in tests)*: `Assert.True(createdJob.CreatedAt
+  <= DateTimeOffset.UtcNow)` intermittently failed due to clock resolution
+  under tight timing.
+  * *Solution*: replaced direct relational comparisons with `Assert.NotEqual(default, ...)`
+    plus a delta check (`TotalSeconds < 5`) to decouple the test from exact
+    OS clock alignment.
+- *Problem (`CS8858` compiler error)*: `ScanJob` was accidentally declared as
+  a plain `class` in an early draft, breaking the `with` expression.
+  * *Solution*: changed to `sealed record`.
+
+**Next:**
+- Merge `feature/scan-job-api` into `main`.
+- **#25 — Harden TCP scan API against resource abuse**: port-count limits,
+  concurrent job limits, private/loopback target restriction, structured
+  logging for scan-related events.
+- **#26 — Refactor: seal internal and test classes for performance
+  optimization ("Peanut Butter" effect)**: apply `sealed` consistently across
+  `Core` and `Tests` where inheritance isn't needed.
+- SQLite/EF Core persistence and ASP.NET Identity remain Phase 2.
+
+---
 <!-- Add new entries above this line, newest on top -->

@@ -1,0 +1,14 @@
+﻿### Korak A: Pokretanje novog TCP skeniranja (POST)
+POST https://localhost:7049/api/scan/tcp
+Content-Type: application/json
+
+{
+  "host": "127.0.0.1",
+  "startPort": 78,
+  "endPort": 82
+}
+
+### Korak B: Provera statusa posla (GET)
+# ZAMENI ovaj Guid ispod sa onim ID-jem koji dobiješ iz odgovora iz Koraka A!
+GET https://localhost:7049/api/scan/2735a859-2bb2-4e10-aa33-f7535c64eb79/status
+Accept: application/json
