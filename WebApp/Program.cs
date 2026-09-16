@@ -1,6 +1,26 @@
+using Core;
+using Core.Jobs;
+using WebApp.Background;
 using WebApp.Components;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        //for enum -> string in json response
+        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    }); //must for /api/scan routes
+
+builder.Services.AddSingleton<IScanJobStore, InMemoryScanJobStore>(); //data live through requests
+
+//register waiting queue as Singleton ( so controller and worker share the same channel)
+builder.Services.AddSingleton<IScanJobQueue, ChannelScanJobQueue>();
+
+builder.Services.AddSingleton<IPortScanner, TcpPortScanner>();
+
+//register background worker which listens all the time channel and scans it
+builder.Services.AddHostedService<ScanBackgroundWorker>();
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
@@ -20,6 +40,9 @@ app.UseHttpsRedirection();
 
 app.UseStaticFiles();
 app.UseAntiforgery();
+
+//app can find our ScanController and lay out its routes
+app.MapControllers();
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
