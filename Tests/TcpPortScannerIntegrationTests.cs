@@ -2,7 +2,7 @@
 
 namespace Tests;
 
-public class TcpPortScannerIntegrationTests
+public sealed class TcpPortScannerIntegrationTests
 {
     private const string KaliVmIp = "192.168.1.103";
     //on kali vm use sudo iptables -A INPUT -p tcp --dport 8888 -j DROP

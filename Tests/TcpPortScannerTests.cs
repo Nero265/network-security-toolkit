@@ -4,7 +4,7 @@ using Core;
 
 namespace Tests;
 
-public class TcpPortScannerTests
+public sealed class TcpPortScannerTests
 {
     [Fact]
     public async Task ScanAsync_UnresolvableHost_ThrowsSocketException()

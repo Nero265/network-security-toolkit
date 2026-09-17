@@ -7,4 +7,4 @@ public enum PortState
     Filtered
 }
 
-public record PortScanResult(int Port, PortState State);
+public sealed record PortScanResult(int Port, PortState State);
