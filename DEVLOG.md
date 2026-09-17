@@ -165,4 +165,37 @@ Write it while it's fresh — don't leave it for "later", you'll forget details 
 - SQLite/EF Core persistence and ASP.NET Identity remain Phase 2.
 
 ---
+
+## 2026-09-17 — Complete sealed-class audit across Core/Tests
+
+**Branch:** `refactor/seal-classes`  
+**Issues/PRs:** #26/#28  
+
+**Work done:**
+- Audited all classes/records in `Core`, `Tests`, and `WebApp` for the
+  `sealed` modifier, following up on the pattern started in #21/#27.
+- Sealed `TcpPortScannerTests` and `TcpPortScannerIntegrationTests`.
+- Sealed the `PortScanResult` record.
+
+**Why / decisions:**
+- Sealing lets the JIT devirtualize and inline calls when it can prove no
+  derived type exists — individually small per call site, but the .NET team
+  applies it broadly across the runtime for exactly this reason (Stephen
+  Toub, ["Performance Improvements in .NET 6" — "Peanut Butter"](https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-6/#peanut-butter)).
+- Interfaces (`IPortScanner`, `IScanJobQueue`, `IScanJobStore`) were left
+  as-is — can't be sealed. Enums (`PortState`, `ScanJobStatus`) were left
+  as-is — implicitly non-inheritable in C# already, so the modifier doesn't
+  apply.
+
+**Problems & solutions:**
+- *Finding*: `PortScanResult` (from the original Phase 1 scanner work) was
+  declared as a plain `record`, not `sealed record`. C# records are **not**
+  sealed by default — a common misconception — so this predates the sealing
+  convention established later in the `ScanJob` design. Fixed by adding
+  `sealed` explicitly.
+
+**Next:** Issue #25 (harden scan API against resource abuse) — port count
+limits, concurrent job cap, target restriction, structured logging.
+
+---
 <!-- Add new entries above this line, newest on top -->
