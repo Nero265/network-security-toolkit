@@ -1,6 +1,8 @@
 ﻿using Core.Jobs;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using WebApp.DTOs;
+using WebApp.Options;
 
 namespace WebApp.Controllers;
 
@@ -10,11 +12,13 @@ public sealed class ScanController : ControllerBase
 {
     private readonly IScanJobStore _jobStore;
     private readonly IScanJobQueue _jobQueue;
+    private readonly ScanApiOptions _options;
 
-    public ScanController(IScanJobStore jobStore, IScanJobQueue jobQueue)
+    public ScanController(IScanJobStore jobStore, IScanJobQueue jobQueue, IOptions<ScanApiOptions> options)
     {
         _jobStore = jobStore;
         _jobQueue = jobQueue;
+        _options = options.Value;
     }
 
     [HttpPost("tcp")]
@@ -27,7 +31,16 @@ public sealed class ScanController : ControllerBase
 
         if (request.StartPort > request.EndPort)
         {
-            return BadRequest(new { Message = "StartPort must be equal or lower then EndPort." });
+            return BadRequest(new { Message = "StartPort must be equal or lower than EndPort." });
+        }
+
+        var portCount = request.EndPort - request.StartPort + 1;
+        if (portCount > _options.MaxPortsPerScan)
+        {
+            return BadRequest(new 
+            { 
+                Message = $"Requested port count ({portCount}) exceeds the allowed maximum ({_options.MaxPortsPerScan})." 
+            });
         }
 
 
