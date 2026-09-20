@@ -6,4 +6,5 @@ public sealed class ScanApiOptions
     
     public int MaxPortsPerScan { get; init; } = 1000;
     public int MaxActiveJobs { get; init; } = 10;
+    public bool AllowPublicTargets { get; init; } = false;
 }

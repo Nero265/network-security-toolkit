@@ -1,4 +1,7 @@
-﻿using Core.Jobs;
+﻿using System.Net;
+using System.Net.Sockets;
+using Core;
+using Core.Jobs;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using WebApp.DTOs;
@@ -49,7 +52,28 @@ public sealed class ScanController : ControllerBase
             {
                 Message = $"Server is at capacity ({_options.MaxActiveJobs} active jobs). Try again later."
             });
-        } 
+        }
+
+        if (!_options.AllowPublicTargets)
+        {
+            IPAddress[] addresses;
+            try
+            {
+                addresses = await Dns.GetHostAddressesAsync(request.Host, HttpContext.RequestAborted);
+            }
+            catch (SocketException)
+            {
+                return BadRequest(new { Message = $"Could not resolve host '{request.Host}'." });
+            }
+
+            if (addresses.Length == 0 || !PrivateNetworkRanges.IsAllowed(addresses[0]))
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    Message = $"Scanning public targets is not allowed. Host '{request.Host}' resolves outside the allowed private/loopback ranges."
+                });
+            }
+        }
 
 
         var ports = new List<int>();
