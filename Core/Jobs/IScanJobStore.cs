@@ -7,4 +7,5 @@ public interface IScanJobStore
     ScanJob MarkRunning(Guid id);
     ScanJob MarkCompleted(Guid id, IReadOnlyList<PortScanResult> results);
     ScanJob MarkFailed(Guid id, string error);
+    int CountActive();
 }

@@ -2,13 +2,14 @@ using Core;
 using Core.Jobs;
 using WebApp.Background;
 using WebApp.Components;
+using WebApp.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
-        //for enum -> string in json response
+        //for enum -> string in JSON response
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     }); //must for /api/scan routes
 
@@ -21,6 +22,9 @@ builder.Services.AddSingleton<IPortScanner, TcpPortScanner>();
 
 //register background worker which listens all the time channel and scans it
 builder.Services.AddHostedService<ScanBackgroundWorker>();
+
+builder.Services.Configure<ScanApiOptions>(
+    builder.Configuration.GetSection(ScanApiOptions.SectionName));
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
