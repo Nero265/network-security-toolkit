@@ -198,4 +198,40 @@ Write it while it's fresh — don't leave it for "later", you'll forget details 
 limits, concurrent job cap, target restriction, structured logging.
 
 ---
+
+## 2026-09-20 — Scan API guardrails (#25)
+
+**Branch:** `feature/scan-port-limit`
+**Issues/PRs:** #25/#32
+
+**Work done:**
+- `MaxPortsPerScan` guardrail: `ScanApiOptions` (`WebApp/Options/`) bound via `IOptions<T>`, checked in `ScanController` before job creation, rejects with `400` when the requested port range exceeds the configured maximum.
+- `MaxActiveJobs` guardrail: added `IScanJobStore.CountActive()`, backed by an `Interlocked`-managed counter in `InMemoryScanJobStore` (incremented in `Create`, decremented in `MarkCompleted`/`MarkFailed`). `ScanController` rejects new requests with `503 Service Unavailable` once the active count reaches the configured limit.
+- Target restriction: new `PrivateNetworkRanges` (`Core/Network/`) checks a resolved `IPAddress` against loopback, RFC 1918 private, link-local, and IPv6 unique-local/link-local ranges using `System.Net.IPNetwork`. `ScanController` resolves the request host via DNS, rejects public targets with `403 Forbidden` unless `AllowPublicTargets` is explicitly enabled in config.
+- Structured logging: added `ILogger<ScanController>` to log job creation (`Information`) and all three rejection paths — port-count, active-jobs, target-restriction, including unresolvable-host (`Warning`) — using message templates throughout, not string interpolation. `ScanBackgroundWorker`'s existing `started`/`completed`/`failed` logging was left untouched (already correct).
+- Test coverage: `ScanControllerTests` extended with accept/reject cases for all three guardrails plus an `AllowPublicTargets: true` override case; new `PrivateNetworkRangesTests` using `[Theory]`/`[InlineData]` for boundary-value coverage of each CIDR range; one `Mock<ILogger<T>>` + `Verify` test confirming the target-restriction rejection is logged at `Warning` level.
+
+**Why / decisions:**
+- **`Interlocked` counter over LINQ scan for `CountActive()`**: a `_jobs.Values.Count(...)` scan over `ConcurrentDictionary` is only weakly consistent under concurrent mutation (no snapshot guarantee), and gets more expensive over time since completed/failed jobs are never pruned. An `Interlocked`-managed field is atomic, O(1), and — for a capacity guardrail rather than a billing-critical counter — more than accurate enough.
+- **Redundant DNS resolve accepted in `ScanController`**: rather than resolving once and threading the `IPAddress` through `ScanJob`/the queue into `TcpPortScanner`, the controller does its own resolve for the target-restriction check. Threading a pre-resolved address through would require a larger model/signature change, and would introduce a TTL/round-robin mismatch risk between the address validated at request time and the address actually scanned later once the job is dequeued — a resolve-twice approach is simpler and safer here, at the cost of one extra (cheap, likely OS-cached) DNS call per request.
+- **`403` over `Failed` job status for target-restriction rejection**: rejected hosts never become a `ScanJob` at all — the check happens before `_jobStore.Create(...)`, consistent with how port-count and active-jobs rejections already work. `403 Forbidden` was chosen over `400`/`503` because it's semantically "request understood, not permitted" rather than "malformed" or "server busy".
+- **`AllowPublicTargets` as a plain `bool`, not a configurable CIDR allow-list**: the issue asked for a default-restricted, configurable toggle, not a general-purpose policy engine — a bool is sufficient scope for a demo/portfolio project and can be extended non-destructively later if ever needed.
+- **Link-local (`169.254.0.0/16`, `fe80::/10`) treated as allowed**, alongside loopback and RFC 1918 private ranges — a deliberate scope decision, not an oversight.
+
+**Problems & solutions:**
+- *Problem (dependency-injection breaking change)*: adding `ILogger<ScanController>` as a 4th constructor parameter broke every existing `ScanController` test.
+  - *Solution*: added a `_logger` field defaulted to `NullLogger<ScanController>.Instance` at the class level, so most tests don't need to pass a logger explicitly; the one test verifying logging behavior passes a real `Mock<ILogger<ScanController>>` instead.
+- *Problem (Moq + `ILogger` verification is awkward)*: `ILogger.Log<TState>` is generic, so a normal `It.IsAny<TState>()` setup doesn't compile against a `Mock<ILogger<T>>`.
+  - *Solution*: used Moq's `It.IsAnyType` wildcard with a `(state, _) => state.ToString()!.Contains(...)` predicate to assert on the formatted message content, since asserting on individual structured fields isn't directly accessible through the mock without a custom `ILogger` capture implementation.
+- *Off-by-one caught before merge*: initial port-count check used `portCount >= MaxPortsPerScan` instead of `>`, which would have rejected a scan of exactly `MaxPortsPerScan` ports — caught via test review, not a failing test, since no boundary test existed yet at that point.
+
+**Found, not fixed (filed separately):**
+- `TcpPortScanner.ScanPortAsync` hardcodes `AddressFamily.InterNetwork` for the socket while `ScanAsync` picks `addresses[0]` from DNS resolution without filtering by family — an IPv6-first resolution would silently break scanning (likely returning all-`Filtered` instead of a clear error). Filed as its own issue; not part of #25's scope.
+
+**Next:**
+- Merge `feature/scan-port-limit` into `main` via PR #32 (`Closes #25`).
+- Separate follow-up issue: add `Location` header to the `202 Accepted` response on `POST /api/scan/tcp` (scoped earlier, not yet started).
+- Separate follow-up issue: fix hardcoded `AddressFamily.InterNetwork` in `TcpPortScanner`.
+- Phase 1 still open: UDP scan (`UdpPortScanner`, Strategy pattern already in place from `TcpPortScanner`/`IPortScanner`) is the remaining item before Phase 1 is considered complete.
+---
 <!-- Add new entries above this line, newest on top -->
