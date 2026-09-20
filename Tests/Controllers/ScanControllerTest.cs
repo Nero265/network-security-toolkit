@@ -25,7 +25,7 @@ public sealed class ScanControllerTest
 
         store.Setup(s => s.Create(It.IsAny<string>(), It.IsAny<List<int>>()))
             .Returns(expectedJob);
-        
+
         var queue = new Mock<IScanJobQueue>();
         queue.Setup(q => q.EnqueueAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .Returns(ValueTask.CompletedTask);
@@ -50,7 +50,7 @@ public sealed class ScanControllerTest
 
         Assert.IsType<AcceptedAtActionResult>(result);
     }
-    
+
     [Fact]
     public async Task StartTcpScan_PortCountExceedsLimit_ReturnsBadRequest()
     {
@@ -67,5 +67,58 @@ public sealed class ScanControllerTest
         var result = await controller.StartTcpScan(request);
 
         Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task StartTcpScan_ActiveJobsUnderLimit_ReturnsAccepted()
+    {
+        var store = new Mock<IScanJobStore>();
+        store.Setup(s => s.CountActive()).Returns(9);
+
+        var expectedJob = new ScanJob
+        {
+            Id = Guid.NewGuid(),
+            Host = "127.0.0.1",
+            Ports = new List<int> { 1, 2, 3 },
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        store.Setup(s => s.Create(It.IsAny<string>(), It.IsAny<List<int>>()))
+            .Returns(expectedJob);
+
+        var queue = new Mock<IScanJobQueue>();
+        queue.Setup(q => q.EnqueueAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Returns(ValueTask.CompletedTask);
+
+        var options = Options.Create(new ScanApiOptions { MaxPortsPerScan = 1000, MaxActiveJobs = 10 });
+        var controller = new ScanController(store.Object, queue.Object, options)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext()
+            }
+        };
+
+        var request = new ScanRequest { Host = "127.0.0.1", StartPort = 1, EndPort = 100 };
+
+        var result = await controller.StartTcpScan(request);
+
+        Assert.IsType<AcceptedAtActionResult>(result);
+    }
+    
+    [Fact]
+    public async Task StartTcpScan_ActiveJobsAtLimit_ReturnsServiceUnavailable()
+    {
+        var store = new Mock<IScanJobStore>();
+        store.Setup(s => s.CountActive()).Returns(10);
+
+        var options = Options.Create(new ScanApiOptions { MaxPortsPerScan = 1000, MaxActiveJobs = 10 });
+        var controller = new ScanController(store.Object, null!, options);
+
+        var request = new ScanRequest { Host = "127.0.0.1", StartPort = 1, EndPort = 100 };
+
+        var result = await controller.StartTcpScan(request);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, objectResult.StatusCode);
     }
 }

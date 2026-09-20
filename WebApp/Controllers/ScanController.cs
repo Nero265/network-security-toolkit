@@ -43,6 +43,14 @@ public sealed class ScanController : ControllerBase
             });
         }
 
+        if (_jobStore.CountActive() >= _options.MaxActiveJobs)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                Message = $"Server is at capacity ({_options.MaxActiveJobs} active jobs). Try again later."
+            });
+        } 
+
 
         var ports = new List<int>();
         for (int port = request.StartPort; port <= request.EndPort; port++)
