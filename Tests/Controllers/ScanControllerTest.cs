@@ -1,6 +1,8 @@
 ﻿using Core.Jobs;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using WebApp.Controllers;
@@ -11,6 +13,8 @@ namespace Tests.Controllers;
 
 public sealed class ScanControllerTest
 {
+    private readonly ILogger<ScanController> _logger = NullLogger<ScanController>.Instance;
+    
     [Fact]
     public async Task StartTcpScan_PortCountWithinLimit_ReturnsAccepted()
     {
@@ -31,7 +35,7 @@ public sealed class ScanControllerTest
             .Returns(ValueTask.CompletedTask);
 
         var options = Options.Create(new ScanApiOptions { MaxPortsPerScan = 1000 });
-        var controller = new ScanController(store.Object, queue.Object, options)
+        var controller = new ScanController(store.Object, queue.Object, options, _logger)
         {
             ControllerContext = new ControllerContext
             {
@@ -55,7 +59,7 @@ public sealed class ScanControllerTest
     public async Task StartTcpScan_PortCountExceedsLimit_ReturnsBadRequest()
     {
         var options = Options.Create(new ScanApiOptions { MaxPortsPerScan = 1000 });
-        var controller = new ScanController(null!, null!, options);
+        var controller = new ScanController(null!, null!, options, _logger);
 
         var request = new ScanRequest
         {
@@ -90,7 +94,7 @@ public sealed class ScanControllerTest
             .Returns(ValueTask.CompletedTask);
 
         var options = Options.Create(new ScanApiOptions { MaxPortsPerScan = 1000, MaxActiveJobs = 10 });
-        var controller = new ScanController(store.Object, queue.Object, options)
+        var controller = new ScanController(store.Object, queue.Object, options, _logger)
         {
             ControllerContext = new ControllerContext
             {
@@ -112,7 +116,7 @@ public sealed class ScanControllerTest
         store.Setup(s => s.CountActive()).Returns(10);
 
         var options = Options.Create(new ScanApiOptions { MaxPortsPerScan = 1000, MaxActiveJobs = 10 });
-        var controller = new ScanController(store.Object, null!, options);
+        var controller = new ScanController(store.Object, null!, options, _logger);
 
         var request = new ScanRequest { Host = "127.0.0.1", StartPort = 1, EndPort = 100 };
 
@@ -143,7 +147,7 @@ public sealed class ScanControllerTest
 
         var options = Options.Create(new ScanApiOptions
             { MaxPortsPerScan = 1000, MaxActiveJobs = 10, AllowPublicTargets = false });
-        var controller = new ScanController(store.Object, queue.Object, options)
+        var controller = new ScanController(store.Object, queue.Object, options, _logger)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
@@ -163,7 +167,7 @@ public sealed class ScanControllerTest
 
         var options = Options.Create(new ScanApiOptions
             { MaxPortsPerScan = 1000, MaxActiveJobs = 10, AllowPublicTargets = false });
-        var controller = new ScanController(store.Object, null!, options)
+        var controller = new ScanController(store.Object, null!, options, _logger)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
@@ -184,7 +188,7 @@ public sealed class ScanControllerTest
 
         var options = Options.Create(new ScanApiOptions
             { MaxPortsPerScan = 1000, MaxActiveJobs = 10, AllowPublicTargets = false });
-        var controller = new ScanController(store.Object, null!, options)
+        var controller = new ScanController(store.Object, null!, options, _logger)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
@@ -218,7 +222,7 @@ public sealed class ScanControllerTest
 
         var options = Options.Create(new ScanApiOptions
             { MaxPortsPerScan = 1000, MaxActiveJobs = 10, AllowPublicTargets = true });
-        var controller = new ScanController(store.Object, queue.Object, options)
+        var controller = new ScanController(store.Object, queue.Object, options, _logger)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
@@ -228,5 +232,34 @@ public sealed class ScanControllerTest
         var result = await controller.StartTcpScan(request);
 
         Assert.IsType<AcceptedAtActionResult>(result);
+    }
+    
+    [Fact]
+    public async Task StartTcpScan_PublicHost_LogsWarning()
+    {
+        var store = new Mock<IScanJobStore>();
+        store.Setup(s => s.CountActive()).Returns(0);
+    
+        var logger = new Mock<ILogger<ScanController>>();
+    
+        var options = Options.Create(new ScanApiOptions
+            { MaxPortsPerScan = 1000, MaxActiveJobs = 10, AllowPublicTargets = false });
+        var controller = new ScanController(store.Object, null!, options, logger.Object)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+    
+        var request = new ScanRequest { Host = "192.0.2.1", StartPort = 1, EndPort = 100 };
+    
+        await controller.StartTcpScan(request);
+    
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((state, _) => state.ToString()!.Contains("192.0.2.1")),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
     }
 }
