@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using Core;
 
-namespace Tests;
+namespace Tests.Scanner;
 
 public sealed class TcpPortScannerTests
 {
@@ -106,5 +106,19 @@ public sealed class TcpPortScannerTests
 
         // Assert
         Assert.Empty(results);
+    }
+    
+    [Fact]
+    public async Task ScanAsync_WhenHostResolvesToIPv6_DoesNotThrowAddressFamilyMismatch()
+    {
+        var scanner = new TcpPortScanner(timeout: TimeSpan.FromMilliseconds(200));
+    
+        // "::1" resolves directly to IPv6 loopback, no DNS lookup needed
+        var results = await scanner.ScanAsync("::1", new[] { 65000 });
+    
+        // Before the fix, this would throw SocketException (address family mismatch)
+        // instead of returning a Filtered/Closed result
+        Assert.Single(results);
+        Assert.NotEqual(default, results[0]);
     }
 }

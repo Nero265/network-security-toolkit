@@ -34,7 +34,7 @@ public sealed class TcpPortScanner(int maxConcurrency = 100, TimeSpan? timeout =
 
     private async Task<PortScanResult> ScanPortAsync(IPAddress ipAddress, int port, CancellationToken outerToken)
     {
-        using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        using var socket = new Socket(ipAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
         socket.NoDelay = true;
 
         using var timeoutCts = new CancellationTokenSource(_timeout);

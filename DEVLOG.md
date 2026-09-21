@@ -201,8 +201,8 @@ limits, concurrent job cap, target restriction, structured logging.
 
 ## 2026-09-20 — Scan API guardrails (#25)
 
-**Branch:** `feature/scan-port-limit`
-**Issues/PRs:** #25/#32
+**Branch:** `feature/scan-port-limit`  
+**Issues/PRs:** #25/#32  
 
 **Work done:**
 - `MaxPortsPerScan` guardrail: `ScanApiOptions` (`WebApp/Options/`) bound via `IOptions<T>`, checked in `ScanController` before job creation, rejects with `400` when the requested port range exceeds the configured maximum.
@@ -233,5 +233,29 @@ limits, concurrent job cap, target restriction, structured logging.
 - Separate follow-up issue: add `Location` header to the `202 Accepted` response on `POST /api/scan/tcp` (scoped earlier, not yet started).
 - Separate follow-up issue: fix hardcoded `AddressFamily.InterNetwork` in `TcpPortScanner`.
 - Phase 1 still open: UDP scan (`UdpPortScanner`, Strategy pattern already in place from `TcpPortScanner`/`IPortScanner`) is the remaining item before Phase 1 is considered complete.
+---
+
+## 2026-09-21 — Fix IPv6 address family mismatch in TcpPortScanner
+
+**Branch:** `fix/scanner-ipv6-address-family`  
+**Issues/PRs:** #31/#33  
+
+**Work done:**
+- Fixed `ScanPortAsync` hardcoding `AddressFamily.InterNetwork` for the socket regardless of the resolved address's actual family.
+- Socket is now created using `ipAddress.AddressFamily`, taken from the same resolved `IPAddress` already flowing through `ScanAsync`.
+- Added `ScanAsync_WhenHostResolvesToIPv6_DoesNotThrowAddressFamilyMismatch`, scanning `"::1"` directly (literal IPv6 loopback, no real DNS lookup) to confirm the scanner no longer breaks on IPv6 targets.
+
+**Why / decisions:**
+- **`ipAddress.AddressFamily` over a hardcoded constant**: the resolved address already carries its own family — reading it off the address itself removes the implicit IPv4-only assumption without changing `ScanAsync`'s address-selection logic (`addresses[0]`) or introducing dual-stack scanning, which is out of scope here.
+- **Scope kept to the socket family bug only**: `addresses[0]`'s non-deterministic DNS-order selection is a separate, pre-existing behavior — not touched, consistent with keeping this fix small and reviewable.
+- **Test via public `ScanAsync` API, not `internal`/`InternalsVisibleTo`**: avoided widening `ScanPortAsync`'s visibility just for test access; `"::1"` as a host string exercises the real fixed code path through `Dns.GetHostAddressesAsync` (which parses the literal without a real network round-trip) while staying a true unit test — no Kali VM or `Category=Integration` marker needed.
+
+**Problems & solutions:**
+- *Background*: bug was identified during #25 (2026-09-20 entry) — `ScanPortAsync` hardcoded `AddressFamily.InterNetwork` while `ScanAsync` picked `addresses[0]` without filtering by family, meaning an IPv6-first DNS resolution would silently produce all-`Filtered` results instead of a clear error. Deliberately filed separately at the time to keep #25's scope to the API guardrails.
+
+**Next:**
+- Merge `fix/scanner-ipv6-address-family` into `main` via PR #<broj> (`Closes #<broj>`).
+- Phase 1 still open: `UdpPortScanner` remains the last item before Phase 1 is considered complete.
+
 ---
 <!-- Add new entries above this line, newest on top -->
