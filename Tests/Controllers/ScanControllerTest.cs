@@ -262,4 +262,46 @@ public sealed class ScanControllerTest
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
     }
+
+    [Fact]
+    public async Task StartTcpScan_ReturnsAccepted_WithCorrectLocationRouteValues()
+    {
+        var store = new Mock<IScanJobStore>();
+        var expectedJob = new ScanJob
+        {
+            Id = Guid.NewGuid(),
+            Host = "127.0.0.1",
+            Ports = new List<int> { 1, 2, 3 },
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        
+        store.Setup(s => s.Create(It.IsAny<string>(), It.IsAny<List<int>>()))
+            .Returns(expectedJob);
+
+        var queue = new Mock<IScanJobQueue>();
+        queue.Setup(q => q.EnqueueAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Returns(ValueTask.CompletedTask);
+
+        var options = Options.Create(new ScanApiOptions { MaxPortsPerScan = 1000 });
+        var controller = new ScanController(store.Object, queue.Object, options, _logger)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext()
+            }
+        };
+
+        var request = new ScanRequest
+        {
+            Host = "127.0.0.1",
+            StartPort = 1,
+            EndPort = 1000
+        };
+
+        var result = await controller.StartTcpScan(request);
+        
+        var accepted = Assert.IsType<AcceptedAtActionResult>(result);
+        Assert.Equal(nameof(ScanController.GetJobStatus), accepted.ActionName);
+        Assert.Equal(expectedJob.Id, accepted.RouteValues!["id"]);
+    }
 }
