@@ -9,6 +9,5 @@ Content-Type: application/json
 }
 
 ### Korak B: Provera statusa posla (GET)
-# ZAMENI ovaj Guid ispod sa onim ID-jem koji dobiješ iz odgovora iz Koraka A!
-GET https://localhost:7049/api/scan/2735a859-2bb2-4e10-aa33-f7535c64eb79/status
+GET https://localhost:7049/api/scan/787cbaf7-4f96-4598-bfb4-bccf53b955b2/status
 Accept: application/json

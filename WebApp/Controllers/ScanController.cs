@@ -119,7 +119,7 @@ public sealed class ScanController : ControllerBase
             new { JobId = job.Id, Status = job.Status });
     }
 
-    [HttpGet("{id}/status")]
+    [HttpGet("{id}/status", Name = "GetScanStatus")]
     public IActionResult GetJobStatus(Guid id)
     {
         var job = _jobStore.Get(id);

@@ -258,4 +258,35 @@ limits, concurrent job cap, target restriction, structured logging.
 - Phase 1 still open: `UdpPortScanner` remains the last item before Phase 1 is considered complete.
 
 ---
+
+## 2026-09-26 — Location header on scan job creation (#30)
+
+**Branch:** `feature/scan-location-header`  
+**Issues/PRs:** #30/#34  
+
+**Work done:**
+- Added `Name = "GetScanStatus"` to the `[HttpGet("{id}/status")]` route on `GetJobStatus`, so the existing `AcceptedAtAction(nameof(GetJobStatus), ...)` call in `StartTcpScan` reliably resolves a `Location` header pointing at the job's status endpoint.
+- Added a unit test (`StartTcpScan_ReturnsAccepted_WithCorrectLocationRouteValues`) asserting `ActionName` and `RouteValues["id"]` on the returned `AcceptedAtActionResult`.
+- Added the project's first integration test (`ScanControllerLocationHeaderTests`), using `WebApplicationFactory<Program>` to send a real in-memory HTTP request and assert the `Location` header's `AbsolutePath` against the expected status URL.
+- Added `public partial class Program { }` to `WebApp/Program.cs` to make the top-level-statement-generated `Program` class visible to `WebApplicationFactory<Program>` in the `Tests` project.
+- Pinned `Microsoft.AspNetCore.Mvc.Testing` to the `8.0.*` line in `Tests.csproj` (`dotnet add` defaulted to the `10.0.x` line, which targets `net10.0` and is incompatible with the project's `net8.0` target).
+
+**Why / decisions:**
+- **Explicit `Name` on the route over relying on convention-based action/controller matching**: `AcceptedAtAction`/`CreatedAtAction` link generation via bare `nameof(...)` is convention-based and can silently fail to resolve a URL (empty `Location` header, no compile error) if the route is ever grouped, prefixed, or restructured. An explicit route name decouples link generation from the action method's name/location.
+- **`AcceptedAtAction` kept as-is, not replaced with manual `Url.Link` + header assignment**: it already returns the correct `202 Accepted` status (vs. `CreatedAtAction`'s `201`, which would incorrectly imply the resource is immediately available) and uses the same named-route mechanism internally — no need for a manual alternative once the route has a name.
+- **Both a unit test and an integration test, not just one**: the unit test asserts routing *intent* (`ActionName`/`RouteValues`) cheaply and fast; it cannot observe the actual materialized `Location` header, since `IUrlHelper` isn't wired to real routes outside a running host. Only a `WebApplicationFactory`-based test exercises the real ASP.NET Core routing/middleware pipeline and can assert on the literal header value — which is what the issue's acceptance criteria actually require  — see Microsoft's guide on [Integration tests in ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/test/integration-tests) for the `WebApplicationFactory` pattern used here.
+- **Not marked `[Trait("Category", "Integration")]` / not excluded by the CI filter**: despite the "integration test" name, it runs fully in-memory via `TestServer` with all dependencies (`IScanJobStore`, `IScanJobQueue`) mocked — no real network I/O, no dependency on the Kali VM. The existing `--filter "Category!=Integration"` CI convention is reserved for tests that depend on real external infrastructure; this test doesn't qualify and stays in the normal CI run.
+- **`Microsoft.AspNetCore.Mvc.Testing` version pinned to `8.0.*`**: `dotnet add package` without a version resolves to the latest available release across all major versions, not the latest compatible with the project's target framework.
+
+**Problems & solutions:**
+- *Problem (SSL/TLS record exception during manual verification)*: manually testing the endpoint via the JetBrains HTTP client against `https://localhost:7049` threw `NotSslRecordException`. Decoding the raw bytes in the exception showed a plaintext `400 Bad Request` from Kestrel — the app was running under the `http` launch profile (port 5104), not `https` (port 7049), so Kestrel wasn't listening for TLS on 7049 at all; the client's TLS handshake bytes were received as garbage plaintext.
+  - *Solution*: ran `dotnet run --project WebApp --launch-profile https` explicitly, confirmed both `https://localhost:7049` and `http://localhost:5104` in the startup log before retesting.
+- *Problem (integration test hung indefinitely)*: the first version of the integration test only mocked `IScanJobStore`/`IScanJobQueue` for the DI container but left `ScanBackgroundWorker` (registered via `AddHostedService`) running against the mocked queue. Moq's loose mock returns an immediately-completed `default(Guid)` for the unconfigured `DequeueAsync`, so the worker's dequeue loop never actually awaited anything — spinning in a tight loop and starving the thread pool the test's own HTTP call needed to complete.
+  - *Solution*: added `services.RemoveAll<IHostedService>()` in the test's `WithWebHostBuilder` override, removing `ScanBackgroundWorker` from the test host entirely — the test only needs to verify the synchronous controller response, not background job processing.
+- *Problem (`Microsoft.AspNetCore.Mvc.Testing` restore failure, `NU1202`)*: `dotnet add Tests package Microsoft.AspNetCore.Mvc.Testing` pulled `10.0.12`, incompatible with the project's `net8.0` target.
+  - *Solution*: re-ran with `--version 8.0.*` to pin to the compatible major version line.
+
+**Next:**
+- Open PR for `feature/scan-location-header`, `Closes #30`, squash merge.
+- Phase 1 remaining item unchanged: UDP scan (`UdpPortScanner`).
 <!-- Add new entries above this line, newest on top -->
