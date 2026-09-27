@@ -8,11 +8,18 @@ public enum ScanJobStatus
     Failed
 }
 
+public enum ScanType
+{
+    Tcp,
+    Udp
+}
+
 public sealed record ScanJob
 {
     public required Guid Id { get; init; }
     public required string Host { get; init; }
     public required IReadOnlyList<int> Ports { get; init; }
+    public ScanType Type { get; init; } = ScanType.Tcp;
     public ScanJobStatus Status { get; init; } = ScanJobStatus.Pending;
     public IReadOnlyList<PortScanResult>? Results { get; init; }
     public string? Error { get; init; }

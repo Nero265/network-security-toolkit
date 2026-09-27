@@ -18,8 +18,6 @@ builder.Services.AddSingleton<IScanJobStore, InMemoryScanJobStore>(); //data liv
 //register waiting queue as Singleton ( so controller and worker share the same channel)
 builder.Services.AddSingleton<IScanJobQueue, ChannelScanJobQueue>();
 
-builder.Services.AddSingleton<IPortScanner, TcpPortScanner>();
-
 //register background worker which listens all the time channel and scans it
 builder.Services.AddHostedService<ScanBackgroundWorker>();
 
@@ -29,6 +27,12 @@ builder.Services.Configure<ScanApiOptions>(
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+//register Scanner as Keyed Services using ScanType as base
+builder.Services.AddKeyedSingleton<IPortScanner, TcpPortScanner>(ScanType.Tcp);
+builder.Services.AddKeyedSingleton<IPortScanner, UdpPortScanner>(ScanType.Udp);
+
+builder.Services.AddSingleton<IScannerFactory, ScannerFactory>();
 
 var app = builder.Build();
 
