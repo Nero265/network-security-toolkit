@@ -358,4 +358,81 @@ limits, concurrent job cap, target restriction, structured logging.
 - `POST /api/scan/udp` endpoint reusing #25's guardrails
 - Wire `ScanBackgroundWorker` to dispatch via the factory
 - Unit tests for `UdpPortScanner`
+
+---
+
+## 2026-09-28 — IScannerFactory (keyed DI), POST /api/scan/udp, UDP scanner tests
+
+**Branch:** `feature/udp-port-scanner`  
+**Issues/PRs:** #35/—  
+
+**Work done:**
+- Added `IScannerFactory` (`Core`) and `ScannerFactory`, which resolves the
+  scanner by `ScanType` via keyed DI (`GetRequiredKeyedService<IPortScanner>`)
+  and throws `ArgumentOutOfRangeException` for undefined enum values
+- Registered `TcpPortScanner`/`UdpPortScanner` with `AddKeyedSingleton`
+  (key = `ScanType`) and removed the old non-keyed `IPortScanner` registration
+- `ScanJob` got `Type` (default `ScanType.Tcp`); `IScanJobStore.Create` takes
+  an optional `ScanType`; `GetJobStatus` now returns `Type`
+- `ScanBackgroundWorker` takes `IScannerFactory` and dispatches via `job.Type`
+  (scan type is also logged)
+- `POST /api/scan/udp`: the TCP endpoint body moved into a shared
+  `StartScanAsync(request, ScanType)`, with `StartTcpScan`/`StartUdpScan` as
+  thin wrappers — all #25 guardrails and the `Location` header apply to both
+- `UdpPortScannerTests`: unresolvable host, sorting, cancellation, empty
+  list, `Closed` and `OpenFiltered` against loopback raw sockets
+
+**Why / decisions:**
+- **Dispatch flow**: controller stores `Type` in the job → worker reads
+  `job.Type` → factory turns it into a keyed DI lookup → worker calls
+  `ScanAsync` through `IPortScanner`. The enum is the only place where a
+  type becomes a concrete class, so a new scanner means one enum member and
+  one registration, no worker changes
+- **Keyed services over `GetRequiredService<TcpPortScanner>()`**: the factory
+  depends on the abstraction and a key, not on concrete scanner classes, and
+  avoids service-locator style lookups by type. See
+  [Keyed services](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/dependency-injection?view=aspnetcore-10.0#keyed-services)
+- **`Microsoft.Extensions.DependencyInjection.Abstractions` added to `Core`**:
+  first external dependency in the otherwise framework-free `Core`. Accepted
+  because it is abstractions only, and keeping `ScannerFactory` in `Core`
+  makes it reusable from `ConsoleApp` (moving it to `WebApp` would force
+  duplicating it there)
+- **`ScanType` default `Tcp` instead of `required`**: avoids touching every
+  existing call site and test; trade-off is a silent default for new code
+- **Shared `StartScanAsync` helper** instead of copying the endpoint body, so
+  guardrails live in one place
+- **Strict assert in the `Closed` test** (no `Closed || Filtered` relaxation
+  like in the TCP test): loopback ICMP is reliable, and a relaxed assert
+  would hide platform differences (see below)
+
+**Problems & solutions:**
+- *Problem (green locally, red on CI)*: `ScanAsync_ClosedPort_ReturnsClosedState`
+  passed on Windows but failed on the Ubuntu runner (expected `Closed`,
+  actual `OpenFiltered`)
+  * *Analysis*: the test finished in 61 ms with a 1 s timeout, so it was an
+    error, not a timeout. The same ICMP "port unreachable" surfaces as
+    `SocketError.ConnectionReset` on Windows but `ConnectionRefused` on Linux;
+    the filter caught only the former, so the exception fell into the generic
+    `catch (SocketException)` → `OpenFiltered`
+  * *Solution*: `when (ex.SocketErrorCode is SocketError.ConnectionReset or
+    SocketError.ConnectionRefused)` → `Closed`. My earlier assumption that
+    `ConnectionRefused` is TCP-only was wrong for UDP on Linux
+- *Problem (tests red after `Create` gained a parameter)*: Moq setups on
+  `IScanJobStore.Create` no longer compiled (CS0854, optional arguments are
+  not allowed in expression trees) — fixed by adding an explicit
+  `It.IsAny<ScanType>()` third argument
+
+**Found, not fixed (filed as separate issues):**
+- `InMemoryScanJobStore.CountActive()` scans `_jobs.Values` with LINQ, while
+  `_activeCount` is updated via `Interlocked` but never read (the 2026-09-20
+  entry documents the counter version)
+- `ConcurrentBag` → `ConcurrentQueue` in both scanners: the bag's
+  thread-local optimization is unused (only `Add` + one final enumeration)
+
+**Next:**
+- `Open`-state UDP test (background server that answers the empty datagram)
+- Controller test for `POST /api/scan/udp`: `202` + `Location` + `Type == Udp`
+- Mark the PR ready for review and squash-merge (`Closes #35`)
+
+---
 <!-- Add new entries above this line, newest on top -->
