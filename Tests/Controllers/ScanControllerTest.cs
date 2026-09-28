@@ -27,7 +27,7 @@ public sealed class ScanControllerTest
             CreatedAt = DateTimeOffset.UtcNow
         };
 
-        store.Setup(s => s.Create(It.IsAny<string>(), It.IsAny<List<int>>()))
+        store.Setup(s => s.Create(It.IsAny<string>(), It.IsAny<List<int>>(), It.IsAny<ScanType>()))
             .Returns(expectedJob);
 
         var queue = new Mock<IScanJobQueue>();
@@ -86,7 +86,7 @@ public sealed class ScanControllerTest
             Ports = new List<int> { 1, 2, 3 },
             CreatedAt = DateTimeOffset.UtcNow
         };
-        store.Setup(s => s.Create(It.IsAny<string>(), It.IsAny<List<int>>()))
+        store.Setup(s => s.Create(It.IsAny<string>(), It.IsAny<List<int>>(), It.IsAny<ScanType>()))
             .Returns(expectedJob);
 
         var queue = new Mock<IScanJobQueue>();
@@ -138,7 +138,7 @@ public sealed class ScanControllerTest
             Ports = new List<int> { 1, 2, 3 },
             CreatedAt = DateTimeOffset.UtcNow
         };
-        store.Setup(s => s.Create(It.IsAny<string>(), It.IsAny<List<int>>()))
+        store.Setup(s => s.Create(It.IsAny<string>(), It.IsAny<List<int>>(), It.IsAny<ScanType>()))
             .Returns(expectedJob);
 
         var queue = new Mock<IScanJobQueue>();
@@ -213,7 +213,7 @@ public sealed class ScanControllerTest
             Ports = new List<int> { 1, 2, 3 },
             CreatedAt = DateTimeOffset.UtcNow
         };
-        store.Setup(s => s.Create(It.IsAny<string>(), It.IsAny<List<int>>()))
+        store.Setup(s => s.Create(It.IsAny<string>(), It.IsAny<List<int>>(), It.IsAny<ScanType>()))
             .Returns(expectedJob);
 
         var queue = new Mock<IScanJobQueue>();
@@ -275,7 +275,7 @@ public sealed class ScanControllerTest
             CreatedAt = DateTimeOffset.UtcNow
         };
         
-        store.Setup(s => s.Create(It.IsAny<string>(), It.IsAny<List<int>>()))
+        store.Setup(s => s.Create(It.IsAny<string>(), It.IsAny<List<int>>(), It.IsAny<ScanType>()))
             .Returns(expectedJob);
 
         var queue = new Mock<IScanJobQueue>();

@@ -32,7 +32,7 @@ public sealed class ScanControllerLocationHeaderTests
 
         var store = new Mock<IScanJobStore>();
         store.Setup(s => s.CountActive()).Returns(0);
-        store.Setup(s => s.Create(It.IsAny<string>(), It.IsAny<List<int>>()))
+        store.Setup(s => s.Create(It.IsAny<string>(), It.IsAny<List<int>>(), It.IsAny<ScanType>()))
             .Returns(expectedJob);
 
         var queue = new Mock<IScanJobQueue>();

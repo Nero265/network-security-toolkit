@@ -2,7 +2,7 @@
 
 public interface IScanJobStore
 {
-    ScanJob Create(string host, IReadOnlyList<int> ports);
+    ScanJob Create(string host, IReadOnlyList<int> ports, ScanType type = ScanType.Tcp);
     ScanJob? Get(Guid id);
     ScanJob MarkRunning(Guid id);
     ScanJob MarkCompleted(Guid id, IReadOnlyList<PortScanResult> results);
