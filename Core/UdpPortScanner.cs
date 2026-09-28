@@ -60,7 +60,7 @@ public sealed class UdpPortScanner(int maxConcurrency = 100, TimeSpan? timeout =
         {
             return new PortScanResult(port, PortState.OpenFiltered);
         }
-        catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionReset)
+        catch (SocketException ex) when (ex.SocketErrorCode is SocketError.ConnectionReset or SocketError.ConnectionRefused)
         {
             return new PortScanResult(port, PortState.Closed);
         }
