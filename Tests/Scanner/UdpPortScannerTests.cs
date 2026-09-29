@@ -91,4 +91,38 @@ public class UdpPortScannerTests
         var result = Assert.Single(results);
         Assert.Equal(PortState.OpenFiltered, result.State);
     }
+    
+    [Fact]
+    public async Task ScanAsync_RespondingPort_ReturnsOpenState()
+    {
+        // Arrange
+        using var serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        serverSocket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        int serverPort = ((IPEndPoint)serverSocket.LocalEndPoint!).Port;
+    
+        // safety net: server can never hang the test longer than 5 s
+        using var serverCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    
+        var serverTask = Task.Run(async () =>
+        {
+            var buffer = new byte[64];
+            var anySender = new IPEndPoint(IPAddress.Any, 0);
+    
+            var received = await serverSocket.ReceiveFromAsync(buffer, SocketFlags.None, anySender, serverCts.Token);
+            await serverSocket.SendToAsync(new byte[] { 1 }, SocketFlags.None, received.RemoteEndPoint, serverCts.Token);
+        });
+    
+        var scanner = new UdpPortScanner(maxConcurrency: 1, timeout: TimeSpan.FromSeconds(1));
+        try
+        {
+            var results = await scanner.ScanAsync("127.0.0.1", [serverPort]);
+
+            var result = Assert.Single(results);
+            Assert.Equal(PortState.Open, result.State);
+        }
+        finally
+        {
+            await serverTask; // always awaited, even if the Act/Assert above throws
+        }
+    }
 }
