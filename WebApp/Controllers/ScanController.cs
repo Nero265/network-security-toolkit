@@ -31,7 +31,14 @@ public sealed class ScanController : ControllerBase
     }
 
     [HttpPost("tcp")]
-    public async Task<ActionResult> StartTcpScan([FromBody] ScanRequest request)
+    public Task<ActionResult> StartTcpScan([FromBody] ScanRequest request)
+        => StartScanAsync(request, ScanType.Tcp);
+    
+    [HttpPost("udp")]
+    public Task<ActionResult> StartUdpScan([FromBody] ScanRequest request)
+    => StartScanAsync(request, ScanType.Udp);
+    
+    private async Task<ActionResult> StartScanAsync(ScanRequest request, ScanType type)
     {
         if (!ModelState.IsValid)
         {
@@ -102,11 +109,11 @@ public sealed class ScanController : ControllerBase
             ports.Add(port);
         }
 
-        var job = _jobStore.Create(request.Host, ports);
+        var job = _jobStore.Create(request.Host, ports, type);
 
         _logger.LogInformation(
-            "Scan job {JobId} created for host {Host} with {PortCount} ports.",
-            job.Id, job.Host, portCount);
+            "Scan job {JobId} type {type} created for host {Host} with {PortCount} ports.",
+            job.Id, type, job.Host, portCount);
 
         //we put ID of job in our channel (waiting queue)
         //we use await because EnqueueAsync is asynchronous operation which lasts short(just write in channel)
@@ -132,6 +139,7 @@ public sealed class ScanController : ControllerBase
         {
             job.Id,
             job.Host,
+            job.Type,
             job.Status,
             Results = job.Status == ScanJobStatus.Completed ? job.Results : null,
             job.Error,

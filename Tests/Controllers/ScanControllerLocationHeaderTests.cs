@@ -32,7 +32,7 @@ public sealed class ScanControllerLocationHeaderTests
 
         var store = new Mock<IScanJobStore>();
         store.Setup(s => s.CountActive()).Returns(0);
-        store.Setup(s => s.Create(It.IsAny<string>(), It.IsAny<List<int>>()))
+        store.Setup(s => s.Create(It.IsAny<string>(), It.IsAny<List<int>>(), ScanType.Tcp))
             .Returns(expectedJob);
 
         var queue = new Mock<IScanJobQueue>();
@@ -48,7 +48,7 @@ public sealed class ScanControllerLocationHeaderTests
 
                 services.RemoveAll<IScanJobQueue>();
                 services.AddSingleton(queue.Object);
-                
+
                 services.RemoveAll<IHostedService>();
             });
         }).CreateClient();
@@ -63,5 +63,54 @@ public sealed class ScanControllerLocationHeaderTests
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         Assert.NotNull(response.Headers.Location);
         Assert.Equal($"/api/scan/{expectedJob.Id}/status", response.Headers.Location!.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task PostUdpScan_ReturnsAccepted_WithLocationHeaderToStatusEndpoint()
+    {
+        var expectedJob = new ScanJob
+        {
+            Id = Guid.NewGuid(),
+            Host = "127.0.0.1",
+            Ports = new List<int> { 1, 2, 3 },
+            Type = ScanType.Udp,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+
+        var store = new Mock<IScanJobStore>();
+        store.Setup(s => s.CountActive()).Returns(0);
+        store.Setup(s => s.Create(It.IsAny<string>(), It.IsAny<List<int>>(), ScanType.Udp))
+            .Returns(expectedJob);
+
+        var queue = new Mock<IScanJobQueue>();
+        queue.Setup(q => q.EnqueueAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Returns(ValueTask.CompletedTask);
+
+        var client = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IScanJobStore>();
+                services.AddSingleton(store.Object);
+
+                services.RemoveAll<IScanJobQueue>();
+                services.AddSingleton(queue.Object);
+
+                services.RemoveAll<IHostedService>();
+            });
+        }).CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/scan/udp", new
+        {
+            Host = "127.0.0.1",
+            StartPort = 1,
+            EndPort = 100
+        });
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.NotNull(response.Headers.Location);
+        Assert.Equal($"/api/scan/{expectedJob.Id}/status", response.Headers.Location!.AbsolutePath);
+
+        store.Verify(s => s.Create(It.IsAny<string>(), It.IsAny<List<int>>(), ScanType.Udp));
     }
 }

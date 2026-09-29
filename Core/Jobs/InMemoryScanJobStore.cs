@@ -6,13 +6,14 @@ public sealed class InMemoryScanJobStore : IScanJobStore
 {
     private readonly ConcurrentDictionary<Guid, ScanJob> _jobs = new();
     private int _activeCount;
-    public ScanJob Create(string host, IReadOnlyList<int> ports)
+    public ScanJob Create(string host, IReadOnlyList<int> ports, ScanType type = ScanType.Tcp)
     {
         var job = new ScanJob
         {
             Id = Guid.NewGuid(),
             Host = host,
             Ports = ports,
+            Type = type,
             CreatedAt = DateTimeOffset.UtcNow
         };
 

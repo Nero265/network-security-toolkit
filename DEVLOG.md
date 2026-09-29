@@ -289,4 +289,171 @@ limits, concurrent job cap, target restriction, structured logging.
 **Next:**
 - Open PR for `feature/scan-location-header`, `Closes #30`, squash merge.
 - Phase 1 remaining item unchanged: UDP scan (`UdpPortScanner`).
+
+---
+
+## 2026-09-27 — UdpPortScanner (skeleton) + PortState.OpenFiltered
+
+**Branch:** `feature/udp-port-scanner`  
+**Issues/PRs:** #35/—  
+
+**Work done:**
+- Extended shared `PortState` enum with `OpenFiltered`, for UDP's inherent
+  Open/Filtered ambiguity (no handshake to distinguish the two — matches
+  nmap's `open|filtered` convention)
+- Implemented `UdpPortScanner : IPortScanner` — `ScanAsync` mirrors
+  `TcpPortScanner`'s orchestration (DNS resolved once, `ConcurrentBag` +
+  `Parallel.ForEachAsync`, sorted by port on return)
+- `ScanPortAsync`: `ConnectAsync` (local peer set, no network I/O) →
+  `SendAsync` with an empty payload → `ReceiveAsync` with a linked
+  timeout/cancellation token, same linked-`CancellationTokenSource` pattern
+  as `TcpPortScanner`
+- `ArrayPool<byte>.Shared.Rent(64)`/`Return` in a `try/finally` around
+  `ReceiveAsync`, instead of a per-call `new byte[]` allocation or a shared
+  static buffer
+
+**Why / decisions:**
+- **`OpenFiltered` over reusing `Filtered`**: UDP has no handshake, so "no
+  response within timeout" is genuinely ambiguous (could be open, could be
+  filtered) — collapsing it into `Filtered` would overstate certainty.
+  Chosen over extending `TcpPortScanner`'s existing `Filtered` semantics,
+  since TCP's `Filtered` already means something more specific (timeout on
+  a connection attempt) that `UdpPortScanner` doesn't share
+- **`SocketError.ConnectionReset` → `Closed`**: distinct from TCP's
+  `ConnectionRefused` — UDP has no connection to refuse. `ConnectionReset`
+  here is what .NET surfaces when the OS receives an ICMP "Port
+  Unreachable" reply for the sent datagram, which is the actual UDP-side
+  signal of a closed port
+- **Other `SocketException` codes (e.g. `HostUnreachable`) → `OpenFiltered`,
+  not `Filtered`**: same reasoning as the timeout case — we know something
+  is unusual on the path, but not confidently that the port itself is
+  closed or blocked, so we don't want to claim more certainty than we have
+- **Empty `SendAsync` payload**: valid at the IP/UDP layer; a generic
+  scanner has no service-specific protocol to speak, so a random/non-empty
+  payload would add no value
+- **`ArrayPool<byte>.Shared` over `new byte[]` per call**: avoids one heap
+  allocation per port under high concurrency (`maxConcurrency = 100`);
+  rejected a `static` shared buffer instead — `ReceiveAsync` pins the
+  buffer for the async I/O operation, so concurrent calls writing into the
+  same static array would race on the same memory region, which isn't a
+  supported use of the API. See
+  [`ArrayPool<T>` docs](https://learn.microsoft.com/en-us/dotnet/api/system.buffers.arraypool-1?view=net-10.0)
+- Buffer size `64` bytes, not `1024`: response content is never read (only
+  whether `ReceiveAsync` completes), so a smaller rented buffer is enough
+  and cheaper to rent
+
+**Problems & solutions:**
+- Considered a single `catch (Exception)` fallback for unmatched
+  `SocketException` codes, mirroring nothing in particular — caught during
+  review that this reintroduces the same broad-catch problem already
+  avoided in `TcpPortScanner` (silently masks real bugs, e.g.
+  `ObjectDisposedException`, as false scan results). Replaced with an
+  unfiltered `catch (SocketException)` positioned after the
+  `ConnectionReset`-filtered catch, letting any non-socket exception
+  propagate
+
+**Next:**
+- `IScannerFactory` for scanner selection (Factory pattern, first use in
+  the project)
+- `POST /api/scan/udp` endpoint reusing #25's guardrails
+- Wire `ScanBackgroundWorker` to dispatch via the factory
+- Unit tests for `UdpPortScanner`
+
+---
+
+## 2026-09-28 — IScannerFactory (keyed DI), POST /api/scan/udp, UDP scanner tests
+
+**Branch:** `feature/udp-port-scanner`  
+**Issues/PRs:** #35/—#38  
+
+**Work done:**
+- Added `IScannerFactory` (`Core`) and `ScannerFactory`, which resolves the
+  scanner by `ScanType` via keyed DI (`GetRequiredKeyedService<IPortScanner>`)
+  and throws `ArgumentOutOfRangeException` for undefined enum values
+- Registered `TcpPortScanner`/`UdpPortScanner` with `AddKeyedSingleton`
+  (key = `ScanType`) and removed the old non-keyed `IPortScanner` registration
+- `ScanJob` got `Type` (default `ScanType.Tcp`); `IScanJobStore.Create` takes
+  an optional `ScanType`; `GetJobStatus` now returns `Type`
+- `ScanBackgroundWorker` takes `IScannerFactory` and dispatches via `job.Type`
+  (scan type is also logged)
+- `POST /api/scan/udp`: the TCP endpoint body moved into a shared
+  `StartScanAsync(request, ScanType)`, with `StartTcpScan`/`StartUdpScan` as
+  thin wrappers — all #25 guardrails and the `Location` header apply to both
+- `UdpPortScannerTests`: unresolvable host, sorting, cancellation, empty
+  list, `Closed`, `OpenFiltered`, and `Open` (against loopback raw sockets;
+  `Open` uses a background `Task.Run` UDP "server" that answers the scanner's
+  empty datagram via `ReceiveFromAsync`/`SendToAsync`)
+- `ScanControllerLocationHeaderTests`: added a UDP counterpart to the
+  existing TCP test — `202` + correct `Location` header, plus an explicit
+  `Moq` `Verify` that `IScanJobStore.Create` is called with `ScanType.Udp`
+  specifically (not just "any" type), through a real HTTP request against
+  `WebApplicationFactory<Program>` with `IScanJobStore`/`IScanJobQueue`
+  mocked and `IHostedService` removed to keep the test isolated from real
+  network I/O and the background worker
+
+**Why / decisions:**
+- **Dispatch flow**: controller stores `Type` in the job → worker reads
+  `job.Type` → factory turns it into a keyed DI lookup → worker calls
+  `ScanAsync` through `IPortScanner`. The enum is the only place where a
+  type becomes a concrete class, so a new scanner means one enum member and
+  one registration, no worker changes
+- **Keyed services over `GetRequiredService<TcpPortScanner>()`**: the factory
+  depends on the abstraction and a key, not on concrete scanner classes, and
+  avoids service-locator style lookups by type. See
+  [Keyed services](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/dependency-injection?view=aspnetcore-10.0#keyed-services)
+- **`Microsoft.Extensions.DependencyInjection.Abstractions` added to `Core`**:
+  first external dependency in the otherwise framework-free `Core`. Accepted
+  because it is abstractions only, and keeping `ScannerFactory` in `Core`
+  makes it reusable from `ConsoleApp` (moving it to `WebApp` would force
+  duplicating it there)
+- **`ScanType` default `Tcp` instead of `required`**: avoids touching every
+  existing call site and test; trade-off is a silent default for new code
+- **Shared `StartScanAsync` helper** instead of copying the endpoint body, so
+  guardrails live in one place
+- **Strict assert in the `Closed` test** (no `Closed || Filtered` relaxation
+  like in the TCP test): loopback ICMP is reliable, and a relaxed assert
+  would hide platform differences (see below) — this is exactly what caught
+  the Linux issue
+- **Explicit `ScanType.Udp` in the controller test's `Create` setup, plus a
+  `Verify`**, instead of `It.IsAny<ScanType>()`: catches a controller bug
+  that would silently send the wrong type to the store — a loose setup
+  would have let that pass
+
+**Problems & solutions:**
+- *Problem (green locally, red on CI)*: `ScanAsync_ClosedPort_ReturnsClosedState`
+  passed on Windows but failed on the Ubuntu runner (expected `Closed`,
+  actual `OpenFiltered`)
+  * *Analysis*: the test finished in 61 ms with a 1 s timeout, so it was an
+    error, not a timeout. The same ICMP "port unreachable" surfaces as
+    `SocketError.ConnectionReset` on Windows but `ConnectionRefused` on Linux;
+    the filter caught only the former, so the exception fell into the generic
+    `catch (SocketException)` → `OpenFiltered`
+  * *Solution*: `when (ex.SocketErrorCode is SocketError.ConnectionReset or
+    SocketError.ConnectionRefused)` → `Closed`. My earlier assumption that
+    `ConnectionRefused` is TCP-only was wrong for UDP on Linux
+- *Problem (tests red after `Create` gained a parameter)*: Moq setups on
+  `IScanJobStore.Create` no longer compiled (CS0854, optional arguments are
+  not allowed in expression trees) — fixed by adding an explicit
+  `It.IsAny<ScanType>()` (or a concrete `ScanType`) third argument
+- *IDE warning (captured variable disposed in outer scope)*: `serverSocket`
+  in the `Open` test is `using`-scoped to the method, but also captured by
+  the background `Task.Run` lambda — the IDE couldn't statically prove the
+  socket wouldn't be disposed while the lambda was still using it (e.g. if
+  `Act`/`Assert` threw before `await serverTask`). Fixed by wrapping
+  Act/Assert in `try { ... } finally { await serverTask; }`, guaranteeing the
+  background task is always awaited before the method's `using` disposes
+  the socket
+
+**Found, not fixed (filed as separate backlog issues):**
+- `InMemoryScanJobStore.CountActive()` scans `_jobs.Values` with LINQ, while
+  `_activeCount` is updated via `Interlocked` but never read (the 2026-09-20
+  entry documents the counter version)
+- `ConcurrentBag` → `ConcurrentQueue` in both scanners: the bag's
+  thread-local optimization is unused (only `Add` + one final enumeration)
+
+**Next:**
+- Mark the PR ready for review and squash-merge (`Closes #35`) — Phase 1
+  (`ROADMAP.md`) complete after this
+
+---
 <!-- Add new entries above this line, newest on top -->

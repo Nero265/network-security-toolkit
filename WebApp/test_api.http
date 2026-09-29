@@ -11,3 +11,17 @@ Content-Type: application/json
 ### Korak B: Provera statusa posla (GET)
 GET https://localhost:7049/api/scan/787cbaf7-4f96-4598-bfb4-bccf53b955b2/status
 Accept: application/json
+
+### Korak C: Pokretanje novog UDP skeniranja (POST)
+POST https://localhost:7049/api/scan/udp
+Content-Type: application/json
+
+{
+  "host": "127.0.0.1",
+  "startPort": 78,
+  "endPort": 82
+}
+
+### Korak D: Provera statusa posla (GET)
+GET https://localhost:7049/api/scan/1f8c7e46-dea5-42cf-80e6-f7da007984ce/status
+Accept: application/json

@@ -7,18 +7,18 @@ public sealed class ScanBackgroundWorker : BackgroundService
 {
     private readonly IScanJobQueue _queue;
     private readonly IScanJobStore _jobStore;
-    private readonly IPortScanner _portScanner;
+    private readonly IScannerFactory _scannerFactory;
     private readonly ILogger<ScanBackgroundWorker> _logger;
 
     public ScanBackgroundWorker(
         IScanJobQueue queue,
         IScanJobStore jobStore,
-        IPortScanner portScanner,
+        IScannerFactory scannerFactory,
         ILogger<ScanBackgroundWorker> logger)
     {
         _queue = queue;
         _jobStore = jobStore;
-        _portScanner = portScanner;
+        _scannerFactory = scannerFactory;
         _logger = logger;
     }
 
@@ -50,10 +50,11 @@ public sealed class ScanBackgroundWorker : BackgroundService
                 // 4. Isolated try-catch block for the scanning operation to prevent hanging states
                 try
                 {
-                    _logger.LogInformation("Scan is started for job {jobId} on host {Host}...", jobId, job.Host);
+                    _logger.LogInformation("Scan ({Type}) is started for job {jobId} on host {Host}...", job.Type, jobId, job.Host);
+                    var scanner = _scannerFactory.GetScanner(job.Type);
 
                     // Starting real scanner from Core/
-                    var results = await _portScanner.ScanAsync(job.Host, job.Ports, stoppingToken);
+                    var results = await scanner.ScanAsync(job.Host, job.Ports, stoppingToken);
 
                     // 5. We finish the job
                     _jobStore.MarkCompleted(jobId, results);
