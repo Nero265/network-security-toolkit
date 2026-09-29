@@ -364,7 +364,7 @@ limits, concurrent job cap, target restriction, structured logging.
 ## 2026-09-28 — IScannerFactory (keyed DI), POST /api/scan/udp, UDP scanner tests
 
 **Branch:** `feature/udp-port-scanner`  
-**Issues/PRs:** #35/—  
+**Issues/PRs:** #35/—#38  
 
 **Work done:**
 - Added `IScannerFactory` (`Core`) and `ScannerFactory`, which resolves the
@@ -380,7 +380,16 @@ limits, concurrent job cap, target restriction, structured logging.
   `StartScanAsync(request, ScanType)`, with `StartTcpScan`/`StartUdpScan` as
   thin wrappers — all #25 guardrails and the `Location` header apply to both
 - `UdpPortScannerTests`: unresolvable host, sorting, cancellation, empty
-  list, `Closed` and `OpenFiltered` against loopback raw sockets
+  list, `Closed`, `OpenFiltered`, and `Open` (against loopback raw sockets;
+  `Open` uses a background `Task.Run` UDP "server" that answers the scanner's
+  empty datagram via `ReceiveFromAsync`/`SendToAsync`)
+- `ScanControllerLocationHeaderTests`: added a UDP counterpart to the
+  existing TCP test — `202` + correct `Location` header, plus an explicit
+  `Moq` `Verify` that `IScanJobStore.Create` is called with `ScanType.Udp`
+  specifically (not just "any" type), through a real HTTP request against
+  `WebApplicationFactory<Program>` with `IScanJobStore`/`IScanJobQueue`
+  mocked and `IHostedService` removed to keep the test isolated from real
+  network I/O and the background worker
 
 **Why / decisions:**
 - **Dispatch flow**: controller stores `Type` in the job → worker reads
@@ -403,7 +412,12 @@ limits, concurrent job cap, target restriction, structured logging.
   guardrails live in one place
 - **Strict assert in the `Closed` test** (no `Closed || Filtered` relaxation
   like in the TCP test): loopback ICMP is reliable, and a relaxed assert
-  would hide platform differences (see below)
+  would hide platform differences (see below) — this is exactly what caught
+  the Linux issue
+- **Explicit `ScanType.Udp` in the controller test's `Create` setup, plus a
+  `Verify`**, instead of `It.IsAny<ScanType>()`: catches a controller bug
+  that would silently send the wrong type to the store — a loose setup
+  would have let that pass
 
 **Problems & solutions:**
 - *Problem (green locally, red on CI)*: `ScanAsync_ClosedPort_ReturnsClosedState`
@@ -420,9 +434,17 @@ limits, concurrent job cap, target restriction, structured logging.
 - *Problem (tests red after `Create` gained a parameter)*: Moq setups on
   `IScanJobStore.Create` no longer compiled (CS0854, optional arguments are
   not allowed in expression trees) — fixed by adding an explicit
-  `It.IsAny<ScanType>()` third argument
+  `It.IsAny<ScanType>()` (or a concrete `ScanType`) third argument
+- *IDE warning (captured variable disposed in outer scope)*: `serverSocket`
+  in the `Open` test is `using`-scoped to the method, but also captured by
+  the background `Task.Run` lambda — the IDE couldn't statically prove the
+  socket wouldn't be disposed while the lambda was still using it (e.g. if
+  `Act`/`Assert` threw before `await serverTask`). Fixed by wrapping
+  Act/Assert in `try { ... } finally { await serverTask; }`, guaranteeing the
+  background task is always awaited before the method's `using` disposes
+  the socket
 
-**Found, not fixed (filed as separate issues):**
+**Found, not fixed (filed as separate backlog issues):**
 - `InMemoryScanJobStore.CountActive()` scans `_jobs.Values` with LINQ, while
   `_activeCount` is updated via `Interlocked` but never read (the 2026-09-20
   entry documents the counter version)
@@ -430,9 +452,8 @@ limits, concurrent job cap, target restriction, structured logging.
   thread-local optimization is unused (only `Add` + one final enumeration)
 
 **Next:**
-- `Open`-state UDP test (background server that answers the empty datagram)
-- Controller test for `POST /api/scan/udp`: `202` + `Location` + `Type == Udp`
-- Mark the PR ready for review and squash-merge (`Closes #35`)
+- Mark the PR ready for review and squash-merge (`Closes #35`) — Phase 1
+  (`ROADMAP.md`) complete after this
 
 ---
 <!-- Add new entries above this line, newest on top -->
