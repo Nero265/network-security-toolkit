@@ -436,3 +436,7 @@ FodyWeavers.xsd
 **/appsettings.local.json
 *.local.json
 
+# SQLite
+*.db
+*.db-shm
+*.db-wal

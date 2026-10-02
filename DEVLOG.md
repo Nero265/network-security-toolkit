@@ -454,6 +454,39 @@ limits, concurrent job cap, target restriction, structured logging.
 **Next:**
 - Mark the PR ready for review and squash-merge (`Closes #35`) — Phase 1
   (`ROADMAP.md`) complete after this
+---
+
+## 2026-10-02 — EF Core + SQLite setup
+
+**Branch:** `feature/efcore-sqlite-setup`  
+**Issues/PRs:** #39/#49 
+
+**Work done:**
+- Added `Data` as a new class library project, added to the solution and referenced by `WebApp`; `Data` also references `Core` (same direction as `WebApp → Core` — implementations depend on the interfaces, never the reverse)
+- Added empty `AppDbContext` (`sealed`, `DbContextOptions<AppDbContext>` constructor, no `DbSet`s yet)
+- Added `Microsoft.EntityFrameworkCore.Sqlite` and `Microsoft.EntityFrameworkCore.Design` (pinned to `8.0.11`) to `Data`; added `Design` to `WebApp` as well
+- Configured `ConnectionStrings:Default` in `appsettings.json` (`Data Source=app.db`) and registered `AddDbContext<AppDbContext>` with `UseSqlite` in `WebApp/Program.cs`
+- Added `.gitignore` entries for `*.db`, `*.db-shm`, `*.db-wal`
+- Verified wiring with `dotnet ef migrations list` (expected: no migrations found) instead of creating a migration, since the context intentionally has no entities yet
+
+**Why / decisions:**
+- **No `DbSet`s / no initial migration in this issue**: scoped this as pure setup. The first real migration (`InitialCreate`) comes with #40's `ScanJob` model — an empty-context migration would have been meaningless and the extra moving part wasn't worth it.
+- **`Data` as its own project, not a `WebApp` folder**: matches the `/Data — EF Core DbContext` layer already shown in the README's architecture diagram, and keeps `Core` able to depend on nothing concrete — `IScanJobStore` stays in `Core`, `SqliteScanJobStore` (added in #40) will live in `Data`.
+- **Explicit `--version 8.0.11` on both EF packages**: `dotnet add package` without a version pulls the latest on NuGet regardless of target framework (currently 10.0.12, net10.0-only), which fails at restore, not at install time. Pinned to match the solution's `net8.0` target.
+- **`Design` package added to both `Data` and `WebApp`**: `Microsoft.EntityFrameworkCore.Design` ships with `PrivateAssets="all"`, so it does not flow transitively through a project reference. `dotnet ef` needs it present in the *startup* project (`WebApp`), not just wherever the `DbContext` lives (`Data`).
+- **`.gitignore` covers `-shm`/`-wal` too, not just `.db`**: SQLite's WAL mode (EF Core's default) creates these alongside the main file while the DB is open; ignoring only `*.db` would let them leak into the repo if the process doesn't shut down cleanly.
+
+**Problems & solutions:**
+- *Problem*: `dotnet add Data/Data.csproj reference Core/Core.csproj` initially failed with a target-framework mismatch — `dotnet new classlib` had defaulted `Data` to a newer TFM than the rest of the solution.
+  - *Solution*: set `Data`'s `<TargetFramework>` to `net8.0` to match `WebApp`/`Core`.
+- *Problem*: `Microsoft.EntityFrameworkCore.Sqlite` installed at the latest version (10.0.12) failed at restore with `NU1202` (`net10.0`-only).
+  - *Solution*: reinstalled both EF packages with `--version 8.0.11`, matching the solution's target framework.
+- *Problem*: `dotnet ef migrations list --project Data --startup-project WebApp` failed with *"Your startup project 'WebApp' doesn't reference Microsoft.EntityFrameworkCore.Design"*, even though the package was present in `Data`.
+  - *Solution*: added `Microsoft.EntityFrameworkCore.Design` to `WebApp` directly — expected EF Core behavior given the package's `PrivateAssets="all"` setting, not a misconfiguration.
+
+**Next:**
+- Open PR for `feature/efcore-sqlite-setup`, confirm CI is green, merge.
+- #40 — `SqliteScanJobStore`: add `ScanJob` entity/`DbSet` to `AppDbContext`, create the first real migration (`InitialCreate`), implement `IScanJobStore` on top of EF Core, swap the DI registration in `Program.cs`.
 
 ---
 <!-- Add new entries above this line, newest on top -->
