@@ -1,10 +1,15 @@
 using Core;
 using Core.Jobs;
+using Data;
+using Microsoft.EntityFrameworkCore;
 using WebApp.Background;
 using WebApp.Components;
 using WebApp.Options;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseSqlite(builder.Configuration.GetConnectionString("Default")));
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
