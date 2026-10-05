@@ -39,4 +39,7 @@ internal static class ScanJobMapper
         CreatedAt = j.CreatedAt,
         CompletedAt = j.CompletedAt
     };
+    
+    public static string SerializeResults(IReadOnlyList<PortScanResult> results) =>
+        JsonSerializer.Serialize(results, Json);
 }
