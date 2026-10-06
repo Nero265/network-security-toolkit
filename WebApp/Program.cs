@@ -24,6 +24,7 @@ builder.Services.AddSingleton<IScanJobStore, SqliteScanJobStore>();
 builder.Services.AddSingleton<IScanJobQueue, ChannelScanJobQueue>();
 
 //register background worker which listens all the time channel and scans it
+builder.Services.AddHostedService<ScanJobRecoveryService>();
 builder.Services.AddHostedService<ScanBackgroundWorker>();
 
 builder.Services.Configure<ScanApiOptions>(
