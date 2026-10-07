@@ -489,4 +489,41 @@ limits, concurrent job cap, target restriction, structured logging.
 - #40 — `SqliteScanJobStore`: add `ScanJob` entity/`DbSet` to `AppDbContext`, create the first real migration (`InitialCreate`), implement `IScanJobStore` on top of EF Core, swap the DI registration in `Program.cs`.
 
 ---
+
+## 2026-10-07 — SqliteScanJobStore, startup recovery, store contract tests
+
+**Branch:** `feature/sqlite-scan-job-store`  
+**Issues/PRs:** #40/#50  
+
+**Work done:**
+- Added `ScanJobEntity` and an `internal` `ScanJobMapper` (`ToDomain`/`ToEntity` extension methods) in `Data`; `ScanJob` in `Core` stays free of EF Core
+- Mapped `AppDbContext` in `OnModelCreating`: enums as strings, `Ports`/`Results` as JSON text columns (`PortsJson`/`ResultsJson`), index on `Status`; generated the `InitialCreate` migration
+- Implemented `SqliteScanJobStore : IScanJobStore` on top of `IDbContextFactory<AppDbContext>` (short-lived context per call), including `CountActive()` as a SQL `COUNT`
+- Swapped DI in `Program.cs`: `AddDbContextFactory` + `AddSingleton<IScanJobStore, SqliteScanJobStore>`
+- Added `ScanJobRecoveryService` (`IHostedService`, registered before `ScanBackgroundWorker`): runs `Database.Migrate()`, then marks leftover `Pending`/`Running` jobs as `Failed` ("Interrupted by application restart") via `ExecuteUpdateAsync`
+- Turned `ScanJobLifecycleTests` into an abstract `ScanJobStoreContractTests` with derived `InMemoryScanJobStoreTests` and `SqliteScanJobStoreTests` (in-memory SQLite, one open connection per test); added a recovery test
+- Fixed `ConnectionStrings` accidentally nested inside `Logging` in `appsettings.Development.json`
+
+**Why / decisions:**
+- **Separate entity instead of mapping `ScanJob` directly**: EF wants setters and a parameterless constructor, which would break the `sealed record` with `required`/`init` members in `Core`. The mapper keeps all EF knowledge inside `Data`.
+- **`IDbContextFactory` instead of injecting `AppDbContext`**: the store is a singleton, `DbContext` is scoped, not thread-safe and meant to be short-lived. A context per call avoids sharing it across the HTTP threads and the worker.
+- **JSON columns for `Ports`/`Results`**: we never filter by a single port, always read the whole job, so extra tables (joins, up to 1000 rows per job) add nothing. `JsonStringEnumConverter` keeps `PortState` readable and safe if enum order changes.
+- **Synchronous interface kept**: `Microsoft.Data.Sqlite` has no true async I/O (its async methods run synchronously), operations are sub-millisecond on a local file, and traffic is small (`MaxActiveJobs = 10`, one worker). Changing `IScanJobStore` to async would touch the interface, both stores, controller, worker and tests. To be revisited if we move to a server database.
+- **`Pending` jobs also marked `Failed` on startup**: the queue is an in-memory `Channel`, so a `Pending` job in the database has no matching queue entry after a restart and would never run.
+- **Recovery as a hosted service registered before the worker**: hosted services start in registration order and each `StartAsync` completes before the next, so recovery finishes before the worker reads the queue. `RemoveAll<IHostedService>()` in integration tests also disables it, so tests never touch the real `app.db`.
+- **`Migrate()` at startup**: simplest for a single SQLite file and one instance; with a server database and multiple instances migrations would run separately.
+- **Contract tests (abstract base + derived classes)**: tests are written once against `IScanJobStore` and executed against every implementation, which proves the stores are interchangeable (Liskov substitution; the base class defines the flow and subclasses supply `CreateStore()`, i.e. Template Method). A future store needs one three-line subclass.
+- **`MarkCompleted_PersistsAllPortStates`**: covers the full round trip `PortScanResult` → JSON → DB → JSON → `PortScanResult`, including `OpenFiltered`.
+
+**Problems & solutions:**
+- *Problem*: `AppDbContext` had no constructor taking `DbContextOptions`, so options from `UseSqlite` never reached the context.
+  - *Solution*: added the constructor (primary constructor form).
+- *Problem*: the Rider database tool showed an empty `app.db` (only `sqlite_master`).
+  - *Solution*: `Data Source=app.db` is a relative path, so the data source was pointing at a different (empty) file than the one the app created; re-added the data source with the correct path.
+
+**Next:**
+- Open PR for `feature/sqlite-scan-job-store`, `Closes #40`, confirm CI is green, squash merge.
+- Backlog: results retention/pruning (out of scope here); async `IScanJobStore` if we move to a server database.
+
+---
 <!-- Add new entries above this line, newest on top -->
