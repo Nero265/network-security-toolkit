@@ -8,7 +8,7 @@ using WebApp.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddDbContext<AppDbContext>(options =>
+builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("Default")));
 
 builder.Services.AddControllers()
@@ -18,12 +18,13 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     }); //must for /api/scan routes
 
-builder.Services.AddSingleton<IScanJobStore, InMemoryScanJobStore>(); //data live through requests
-
+//builder.Services.AddSingleton<IScanJobStore, InMemoryScanJobStore>(); //data live through requests
+builder.Services.AddSingleton<IScanJobStore, SqliteScanJobStore>();
 //register waiting queue as Singleton ( so controller and worker share the same channel)
 builder.Services.AddSingleton<IScanJobQueue, ChannelScanJobQueue>();
 
 //register background worker which listens all the time channel and scans it
+builder.Services.AddHostedService<ScanJobRecoveryService>();
 builder.Services.AddHostedService<ScanBackgroundWorker>();
 
 builder.Services.Configure<ScanApiOptions>(

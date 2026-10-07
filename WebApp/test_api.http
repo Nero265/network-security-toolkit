@@ -9,7 +9,7 @@ Content-Type: application/json
 }
 
 ### Korak B: Provera statusa posla (GET)
-GET https://localhost:7049/api/scan/787cbaf7-4f96-4598-bfb4-bccf53b955b2/status
+GET https://localhost:7049/api/scan/22427295-990d-478f-9e71-9b4c3db5332d/status
 Accept: application/json
 
 ### Korak C: Pokretanje novog UDP skeniranja (POST)

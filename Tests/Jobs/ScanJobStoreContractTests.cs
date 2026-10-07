@@ -1,15 +1,16 @@
 ﻿using Core;
 using Core.Jobs;
 
-namespace Tests;
+namespace Tests.Jobs;
 
-public sealed class ScanJobLifecycleTests
+public abstract class ScanJobStoreContractTests
 {
+    protected abstract IScanJobStore CreateStore();
     [Fact]
     public void ScanJob_ShouldFollowCorrectLifecycle_FromCreatedToCompleted()
     {
         // Arrange - Preparing storage and test data
-        IScanJobStore store = new InMemoryScanJobStore();
+        IScanJobStore store = CreateStore();
         string testHost = "127.0.0.1";
         var testPorts = new List<int> { 80, 443, 8080 };
         
@@ -85,7 +86,7 @@ public sealed class ScanJobLifecycleTests
     public void ScanJob_ShouldFailCorrectly_WhenMarkedAsFailed()
     {
         // Arrange
-        IScanJobStore store = new InMemoryScanJobStore();
+        IScanJobStore store = CreateStore();
         var job = store.Create("localhost", new List<int> { 22 });
         string errorMessage = "Host unreachable";
 
@@ -108,12 +109,67 @@ public sealed class ScanJobLifecycleTests
     public void Update_ShouldThrowKeyNotFoundException_WhenJobDoesNotExist()
     {
         // Arrange
-        IScanJobStore store = new InMemoryScanJobStore();
+        IScanJobStore store = CreateStore();
         Guid nonExistentId = Guid.NewGuid();
 
         // Act & Assert
         Assert.Throws<KeyNotFoundException>(() => store.MarkRunning(nonExistentId));
         Assert.Throws<KeyNotFoundException>(() => store.MarkCompleted(nonExistentId, new List<PortScanResult>()));
         Assert.Throws<KeyNotFoundException>(() => store.MarkFailed(nonExistentId, "Error"));
+    }
+
+    [Fact]
+    public void Get_UnknownId_ReturnsNull()
+    {
+        Assert.Null(CreateStore().Get(Guid.NewGuid()));
+    }
+    
+    [Fact]
+    public void Create_PersistsScanType()
+    {
+        var store = CreateStore();
+
+        var job = store.Create("127.0.0.1", new List<int> { 53 }, ScanType.Udp);
+
+        Assert.Equal(ScanType.Udp, job.Type);
+        Assert.Equal(ScanType.Udp, store.Get(job.Id)!.Type);
+    }
+    
+    [Fact]
+    public void MarkCompleted_PersistsAllPortStates()
+    {
+        var store = CreateStore();
+        var job = store.Create("127.0.0.1", new List<int> { 1, 2, 3, 4 });
+        var results = new List<PortScanResult>
+        {
+            new(1, PortState.Open),
+            new(2, PortState.Closed),
+            new(3, PortState.Filtered),
+            new(4, PortState.OpenFiltered)
+        };
+
+        store.MarkCompleted(job.Id, results);
+
+        Assert.Equal(results, store.Get(job.Id)!.Results);
+    }
+    
+    [Fact]
+    public void CountActive_TracksPendingAndRunning_NotFinishedJobs()
+    {
+        var store = CreateStore();
+        Assert.Equal(0, store.CountActive());
+
+        var a = store.Create("127.0.0.1", new List<int> { 80 });
+        var b = store.Create("127.0.0.1", new List<int> { 80 });
+        Assert.Equal(2, store.CountActive());
+
+        store.MarkRunning(a.Id);
+        Assert.Equal(2, store.CountActive());
+
+        store.MarkCompleted(a.Id, new List<PortScanResult>());
+        Assert.Equal(1, store.CountActive());
+
+        store.MarkFailed(b.Id, "x");
+        Assert.Equal(0, store.CountActive());
     }
 }
