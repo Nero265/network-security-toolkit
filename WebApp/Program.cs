@@ -1,6 +1,7 @@
 using Core;
 using Core.Jobs;
 using Data;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using WebApp.Background;
 using WebApp.Components;
@@ -11,6 +12,22 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("Default")));
 
+builder.Services.AddScoped(sp =>
+    sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
+
+builder.Services.AddIdentityCore<IdentityUser>(options =>
+{
+    if (builder.Environment.IsDevelopment())
+    {
+        //demo-only
+        options.Password.RequiredLength = 4;
+        options.Password.RequireDigit = false;
+        options.Password.RequireLowercase = false;
+        options.Password.RequireNonAlphanumeric = false;
+        options.Password.RequireUppercase = false;
+    }
+}).AddEntityFrameworkStores<AppDbContext>();
+
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
@@ -18,13 +35,19 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     }); //must for /api/scan routes
 
-//builder.Services.AddSingleton<IScanJobStore, InMemoryScanJobStore>(); //data live through requests
 builder.Services.AddSingleton<IScanJobStore, SqliteScanJobStore>();
 //register waiting queue as Singleton ( so controller and worker share the same channel)
 builder.Services.AddSingleton<IScanJobQueue, ChannelScanJobQueue>();
 
-//register background worker which listens all the time channel and scans it
-builder.Services.AddHostedService<ScanJobRecoveryService>();
+builder.Services.AddHostedService<ScanJobRecoveryService>(); //migration is first
+
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.Configure<SeedOptions>(
+        builder.Configuration.GetSection(SeedOptions.SectionName));
+    builder.Services.AddHostedService<IdentitySeedService>();
+}
+
 builder.Services.AddHostedService<ScanBackgroundWorker>();
 
 builder.Services.Configure<ScanApiOptions>(

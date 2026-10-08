@@ -526,4 +526,47 @@ limits, concurrent job cap, target restriction, structured logging.
 - Backlog: results retention/pruning (out of scope here); async `IScanJobStore` if we move to a server database.
 
 ---
+
+## 2026-10-08 — ASP.NET Core Identity + seeded test accounts  
+
+**Branch:** `feature/identity-seeded-accounts`  
+**Issues/PRs:** #41/#54  
+
+**Work done:**
+- `AppDbContext` now derives from `IdentityDbContext<IdentityUser>` (`base.OnModelCreating` called first, then the existing `ScanJobEntity` mapping); added `Microsoft.AspNetCore.Identity.EntityFrameworkCore` to `Data`, pinned to `8.0.11`
+- Generated the `AddIdentity` migration on top of `InitialCreate`; `Up()` contains only the `AspNet*` tables, nothing for `ScanJobs`
+- Registered `AddIdentityCore<IdentityUser>().AddEntityFrameworkStores<AppDbContext>()` and a scoped `AppDbContext` created from the existing `IDbContextFactory`
+- Relaxed `PasswordOptions` in Development only, so a deliberately weak password can be created
+- Added `SeedOptions`/`SeedAccount` (`Seed:Accounts:<Name>`) and `IdentitySeedService : IHostedService`, registered only in Development, after `ScanJobRecoveryService` (which runs `MigrateAsync`) and before `ScanBackgroundWorker`
+- Accounts: `Weak` (`demo-weak`, password in `appsettings.Development.json`) and `Strong` (`demo-strong`, password in user-secrets)
+- Added `IdentitySeedServiceTests` (real `UserManager` over in-memory SQLite): creates both accounts with working passwords, idempotent on second start, skips an account with no password, throws when the password policy rejects the password
+
+**Why / decisions:**
+- **`IdentityDbContext<IdentityUser>` on the existing `AppDbContext`, not a second context**: one database, one migration history, one `DbContext` to reason about. Stock `IdentityUser` (no custom `ApplicationUser`) since no extra fields are needed yet. See [`IdentityDbContext`](https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.identity.entityframeworkcore.identitydbcontext?view=aspnetcore-10.0#applies-to)
+- **Second migration instead of touching `InitialCreate`**: migrations are an ordered history. On the existing `app.db`, only `AddIdentity` is applied and `ScanJobs` data stays; on a fresh database both run in order. An applied migration is never edited or deleted
+- **`AddIdentityCore`, not `AddIdentity`/`AddDefaultIdentity`**: only `UserManager` and the stores, no cookie schemes or UI pages (registration UI and login page are out of scope). `SignInManager` comes with the login endpoint
+- **Scoped `AppDbContext` from the factory**: Identity stores need a scoped context, while `SqliteScanJobStore` is a singleton and must stay on `IDbContextFactory`. Creating the scoped context from the same factory keeps both and avoids the options-lifetime conflict of `AddDbContext` next to `AddDbContextFactory`
+- **Weak password needs a relaxed policy**: the default Identity policy rejects `password`, so `CreateAsync` would fail. The relaxation is Development-only; production keeps the default. Setting the hash directly (bypassing validators) was rejected as a hack that breaks "the policy applies everywhere"
+- **Named dictionary (`Weak`/`Strong`), not an array, for accounts**: configuration providers merge by key path. With an array, `Accounts:1:Password` from user-secrets and `Accounts:1:UserName` from JSON are matched by index, so a different order in the two sources could attach a password to the wrong account
+- **Weak vs. strong**: the demo needs a target that falls to a wordlist and a control that does not; later, the same pair shows what the defenses add (lockout/rate limiting/captcha) with the same target
+- **Credentials only in Development config**: `appsettings.json` loads in every environment, so a weak account there would exist in production configuration regardless of the `IsDevelopment()` check. With the Development file, there are two independent layers: the seeder is registered only in Development, and outside it no credentials exist (the seeder would skip with a warning anyway)
+- **Strong password in user-secrets**: stored in the user profile folder outside the repo (not encrypted, so it protects against leaking into git, not against local access); loaded automatically only in Development. See [Safe storage of app secrets](https://learn.microsoft.com/en-us/aspnet/core/security/app-secrets?view=aspnetcore-10.0&tabs=windows%2Cpowershell). The weak password is intentionally public (`password` is in every wordlist)
+- **Seeder behavior**: missing `UserName`/`Password` → skip with a `Warning` (cloning the repo without secrets must not crash the app); Identity rejecting a create → throw (misconfiguration); existing user → untouched (no password overwrite); passwords never logged
+- **Real `UserManager` in tests instead of mocks**: `UserManager` is hard to mock and the interesting behavior (hashing, policy, uniqueness) lives in Identity itself, same reasoning as the real-socket scanner tests. The "second start" test uses different passwords so it can tell "skipped" from "overwritten"
+
+**Problems & solutions:**
+- *Problem*: the generated migration class was named `AdIdentity` (typo in the name).
+  - *Solution*: `dotnet ef migrations remove` + re-add as `AddIdentity`, possible only because it had not been applied yet
+- *Problem*: `dotnet user-secrets set` in PowerShell stored a truncated password: inside double quotes `$` starts a variable, so part of the value was silently expanded to empty (and a placeholder `<` from the example ended up in the value).
+  - *Solution*: single quotes around values containing `$`, re-ran `set`, verified with `dotnet user-secrets list`. If the app had already started with the wrong value, the already-created user would keep the old password, because the seeder does not touch existing accounts
+- *Note*: `dotnet user-secrets init` only adds a `UserSecretsId` to the `.csproj`; the secret itself is a separate `set` command
+
+**Found, not fixed:**
+- No automated test for "seeder is registered only in Development" (it would need a full host with real hosted services); verified manually by checking the startup log in and outside Development
+- `ScanJobRecoveryService` also runs `Database.Migrate()`, which is now a dependency for the seeder's ordering; a dedicated migration hosted service would be clearer (filed as #53 issue)
+- The password-policy options are duplicated between `Program.cs` and the test setup; could become a shared `AddAppIdentity(...)` extension
+
+**Next:**
+- Open PR for `feature/identity-seeded-accounts`, `Closes #41`, confirm CI is green, squash merge
+- Phase 2: login endpoint (`.AddSignInManager()`), then `BruteForceSimulator` against the seeded accounts
 <!-- Add new entries above this line, newest on top -->
