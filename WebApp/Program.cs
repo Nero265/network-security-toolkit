@@ -35,13 +35,19 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     }); //must for /api/scan routes
 
-//builder.Services.AddSingleton<IScanJobStore, InMemoryScanJobStore>(); //data live through requests
 builder.Services.AddSingleton<IScanJobStore, SqliteScanJobStore>();
 //register waiting queue as Singleton ( so controller and worker share the same channel)
 builder.Services.AddSingleton<IScanJobQueue, ChannelScanJobQueue>();
 
-//register background worker which listens all the time channel and scans it
-builder.Services.AddHostedService<ScanJobRecoveryService>();
+builder.Services.AddHostedService<ScanJobRecoveryService>(); //migration is first
+
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.Configure<SeedOptions>(
+        builder.Configuration.GetSection(SeedOptions.SectionName));
+    builder.Services.AddHostedService<IdentitySeedService>();
+}
+
 builder.Services.AddHostedService<ScanBackgroundWorker>();
 
 builder.Services.Configure<ScanApiOptions>(
