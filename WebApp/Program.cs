@@ -1,6 +1,7 @@
 using Core;
 using Core.Jobs;
 using Data;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using WebApp.Background;
 using WebApp.Components;
@@ -10,6 +11,22 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("Default")));
+
+builder.Services.AddScoped(sp =>
+    sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
+
+builder.Services.AddIdentityCore<IdentityUser>(options =>
+{
+    if (builder.Environment.IsDevelopment())
+    {
+        //demo-only
+        options.Password.RequiredLength = 4;
+        options.Password.RequireDigit = false;
+        options.Password.RequireLowercase = false;
+        options.Password.RequireNonAlphanumeric = false;
+        options.Password.RequireUppercase = false;
+    }
+}).AddEntityFrameworkStores<AppDbContext>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
