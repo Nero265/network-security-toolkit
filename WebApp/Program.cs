@@ -26,7 +26,10 @@ builder.Services.AddIdentityCore<IdentityUser>(options =>
         options.Password.RequireNonAlphanumeric = false;
         options.Password.RequireUppercase = false;
     }
-}).AddEntityFrameworkStores<AppDbContext>();
+}).AddEntityFrameworkStores<AppDbContext>()
+    .AddSignInManager();
+
+builder.Services.AddAuthentication();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
