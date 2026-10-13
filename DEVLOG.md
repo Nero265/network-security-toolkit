@@ -569,4 +569,41 @@ limits, concurrent job cap, target restriction, structured logging.
 **Next:**
 - Open PR for `feature/identity-seeded-accounts`, `Closes #41`, confirm CI is green, squash merge
 - Phase 2: login endpoint (`.AddSignInManager()`), then `BruteForceSimulator` against the seeded accounts
+
+---
+
+## 2026-10-13 — Login endpoint (#42)
+
+**Branch:** `feature/auth-login-endpoint`  
+**Issues/PRs:** #42/#57 
+
+**Work done:**
+- Added `POST /api/auth/login` (`AuthController`) validating credentials via `SignInManager.CheckPasswordSignInAsync`; `200` on success, identical `401` for unknown user and wrong password
+- Added `LoginRequest` DTO (`[Required]`, `[StringLength]`) and `LoginOutcome` enum
+- Registered `SignInManager` (`.AddSignInManager()`) and `AddAuthentication()` in `Program.cs`
+- Structured logging of username, source IP and outcome (`Information` on success, `Warning` otherwise)
+- `AuthApiFactory` (`WebApplicationFactory<Program>` over in-memory SQLite with real Identity) and `AuthLoginTests`: success, wrong password, unknown user, identical-response check
+- Manual checks in `test_api.http` (success, wrong password, unknown user, empty username → `400`)
+
+**Why / decisions:**
+- **`CheckPasswordSignInAsync` over `PasswordSignInAsync`**: the latter also issues an auth cookie, which is out of scope for this issue; the simulator only needs to know whether the password is correct
+- **`lockoutOnFailure: false`**: lockout is the first handler of the defense pipeline (later issue); enabling Identity lockout now would defend the endpoint before the demo can show it undefended
+- **Same `401` body for both failures, different log outcome**: clients cannot tell the cases apart; the server log still distinguishes `UnknownUser` from `WrongPassword` for later analysis in the Monitoring module
+- **Real Identity in tests instead of mocking `UserManager`/`SignInManager`**: these types have large constructors, so mocks would test the mocks; the integration test also verifies the DI registration
+- **`EnsureCreatedAsync` in the test factory instead of `Migrate()`**: creates the schema straight from the model, independent of migrations
+
+**Problems & solutions:**
+- *Problem (timing side channel)*: first draft returned `401` immediately for an unknown user, skipping the password hash check. A known user takes tens of ms (PBKDF2), an unknown one ~1 ms, so response time reveals whether a username exists, even though the response body is identical
+  - *Solution*: for an unknown user, verify the submitted password against a static dummy hash (`IPasswordHasher.VerifyHashedPassword`), so both paths cost about the same. It is an approximation, not an exact guarantee
+- *Problem*: `AddIdentityCore` registers only `UserManager`, not `SignInManager`
+  - *Solution*: added `.AddSignInManager()` and `AddAuthentication()`
+
+**Known limitations (not fixed):**
+- The username is logged unsanitized; a username containing newlines could forge a line in a plain-text log. To revisit with Serilog JSON formatting
+
+**Next:**
+- Measure response-time difference between unknown-user and wrong-password cases to confirm the dummy-hash mitigation works in practice
+- Phase 2: next issue in the brute-force module (`BruteForceSimulator` targeting this endpoint)
+
+---
 <!-- Add new entries above this line, newest on top -->
