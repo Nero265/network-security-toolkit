@@ -25,3 +25,33 @@ Content-Type: application/json
 ### Korak D: Provera statusa posla (GET)
 GET https://localhost:7049/api/scan/1f8c7e46-dea5-42cf-80e6-f7da007984ce/status
 Accept: application/json
+
+### Korak E: Login - uspešan
+POST https://localhost:7049/api/auth/login
+Content-Type: application/json
+
+{ "username": "demo-weak", "password": "password" }
+
+### Korak F: Login - pogrešna lozinka
+POST https://localhost:7049/api/auth/login
+Content-Type: application/json
+
+{ "username": "demo-weak", "password": "pogresno" }
+
+### Korak G: Login - nepostojeći korisnik
+POST https://localhost:7049/api/auth/login
+Content-Type: application/json
+
+{ "username": "nepostoji", "password": "bilo sta" }
+
+### Korak H: Login - prazan username (očekuje se 400)
+POST https://localhost:7049/api/auth/login
+Content-Type: application/json
+
+{ "username": "", "password": "password" }
+
+> {%
+    client.test("400 Bad Request", function () {
+        client.assert(response.status === 400, "Expected 400, got " + response.status);
+    });
+%}
