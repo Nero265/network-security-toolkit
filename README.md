@@ -21,7 +21,7 @@ The project is intentionally built with architecture first: SOLID principles and
 **Port Scanner**
 - TCP/UDP scanning with configurable port ranges and timeouts
 - Async job pattern (start scan → job ID → poll status), non-blocking
-- Results exportable to CSV/JSON
+- Results exportable to CSV/JSON (planned)
 
 **Brute-force Demo with Defense**
 - ASP.NET Core Identity-based login system
@@ -43,7 +43,7 @@ The project is intentionally built with architecture first: SOLID principles and
 | 0 | Setup, CI (build + test) | ✅ Done |
 | 1 | Port scanner (TCP/UDP), async job API, guardrails, SQLite persistence | ✅ Done |
 | 1+ | Scan result export (CSV/JSON) | 🔜 Planned |
-| 2 | Brute-force demo + defense pipeline | ⏳ Not started |
+| 2 | Brute-force demo + defense pipeline | 🚧 In progress |
 | 3 | Monitoring (Prometheus + Grafana) | ⏳ Not started |
 | 4 | Blazor UI | ⏳ Not started |
 | 5 | Documentation + polish | ⏳ Not started |
@@ -53,7 +53,8 @@ The project is intentionally built with architecture first: SOLID principles and
 (port limit, active-job limit, private-network-only targets), persistent job
 store with startup recovery, unit and integration tests.
 
-Development history and design decisions: see [`DEVLOG.md`](./DEVLOG.md).
+Development history and design decisions: see [`DEVLOG.md`](./DEVLOG.md).  
+Task board: [GitHub Project](https://github.com/users/Nero265/projects/2).
 
 ---
 
@@ -104,7 +105,7 @@ Development history and design decisions: see [`DEVLOG.md`](./DEVLOG.md).
 
 ### Prerequisites
 - .NET 8 SDK or later
-- (Optional) A VM or host for scan/monitoring targets — testing is done against an isolated Kali Linux VM (VirtualBox, Host-only Adapter)
+- (Optional) A VM or host for scan targets — testing is done against an isolated Kali Linux VM (VirtualBox)
 
 ### Build & run
 
@@ -112,22 +113,56 @@ Development history and design decisions: see [`DEVLOG.md`](./DEVLOG.md).
 git clone https://github.com/Nero265/network-security-toolkit.git
 cd network-security-toolkit
 dotnet build
+dotnet run --project WebApp --launch-profile https
 ```
 
-Run the web app:
+The API listens on `https://localhost:7049` (and `http://localhost:5104` with the
+`http` profile). The SQLite database (`app.db`) is created and migrated
+automatically on startup.
+
+In Development, seeded test accounts are created on startup — see
+[Configuration & secrets](#configuration--secrets).
+
+### Try it
+
 ```bash
-dotnet run --project WebApp
+# start a TCP scan (private/loopback targets only by default)
+curl -k -X POST https://localhost:7049/api/scan/tcp \
+  -H "Content-Type: application/json" \
+  -d '{"host":"127.0.0.1","startPort":78,"endPort":82}'
+
+# poll status with the returned job ID
+curl -k https://localhost:7049/api/scan/<jobId>/status
 ```
 
-Run the console app:
+Ready-made requests are also in [`test_api.http`](./test_api.http).
+
+### Run tests
+
 ```bash
-dotnet run --project ConsoleApp
+dotnet test --filter "Category!=Integration"
 ```
 
-Run tests:
-```bash
-dotnet test
-```
+Integration tests that need a real target (Kali VM) are excluded in CI and run manually.
+
+---
+
+## Configuration & secrets
+
+Seeded test accounts are created on startup **in the Development environment only**.
+
+- **Weak account** (intentionally weak password, for the demo): configured in
+  `appsettings.Development.json` under `Seed:Accounts`.
+- **Strong account**: the password is not stored in the repo. Set it with
+  [.NET user-secrets](https://learn.microsoft.com/en-us/aspnet/core/security/app-secrets):
+
+  ```bash
+  cd WebApp
+  dotnet user-secrets set "Seed:Accounts:Strong:Password" "<your-strong-password>"
+  ```
+
+Never commit real credentials. The accounts exist only for demonstrating and
+measuring the brute-force defenses against this application's own login endpoint.
 
 ---
 
