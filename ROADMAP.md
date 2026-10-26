@@ -8,7 +8,7 @@ early, before expanding functionality.
 
 ## Phase 0 — Setup (2-3 days)
 
-- Repo structure, `.gitignore`, solution setup (Core / WebApp / ConsoleApp / Tests)
+- Repo structure, `.gitignore`, solution setup (Core / Data / WebApp / ConsoleApp / Tests)
 - GitHub Actions CI (build + test on push/PR)
 - README / CONTRIBUTING skeleton
 
@@ -22,7 +22,8 @@ early, before expanding functionality.
   (async job pattern, non-blocking HTTP call)
 - Unit tests for scanner logic (mock network calls)
 - UDP scan added after TCP, once the pattern is proven
-
+- Result export (CSV/JSON) via IResultExporter
+  
 ---
 
 ## Phase 2 — Brute-force demo + defenses (2 weeks)
@@ -31,7 +32,10 @@ early, before expanding functionality.
 - `BruteForceSimulator` (controlled, only against the project's own login endpoint)
 - `DefenseMechanisms` via Chain of Responsibility (lockout → rate limiting → captcha)
 - Tests for the defense pipeline (priority — highest portfolio value of this module)
-
+- `ConsoleApp` CLI for the simulator (runnable from a separate machine),
+  with a small demo wordlist in the repo
+- Measurement runs: baseline → lockout → rate limiting → captcha, recording
+  attempts and time-to-block per mechanism (core data for the thesis)
 ---
 
 ## Phase 3 — Monitoring module (2 weeks)
@@ -40,6 +44,7 @@ early, before expanding functionality.
 - `/metrics` endpoint (Prometheus format, `prometheus-net` NuGet package)
 - Prometheus + Grafana installed **natively** locally (not Docker) to reduce
   resource overhead during development
+- 2-3 alerting rules (host down, too many failed logins, scan duration anomaly)
 - Observer pattern for host status changes
 
 ---
@@ -76,7 +81,9 @@ early, before expanding functionality.
 
 ~10-12 weeks at a normal pace. Faster is possible with intensive work, but the
 phase order (architecture → functionality → UI → documentation) should be kept
-regardless of pace.
+regardless of pace. The estimate is approximate and may take longer, depending
+on other academic obligations and thesis requirements (literature review,
+evaluation, writing).
 
 ## 🧭 Approach notes
 
