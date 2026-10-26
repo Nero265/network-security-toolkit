@@ -36,6 +36,27 @@ The project is intentionally built with architecture first: SOLID principles and
 
 ---
 
+## Status
+
+| Phase | Scope | State |
+|---|---|---|
+| 0 | Setup, CI (build + test) | ✅ Done |
+| 1 | Port scanner (TCP/UDP), async job API, guardrails, SQLite persistence | ✅ Done |
+| 1+ | Scan result export (CSV/JSON) | 🔜 Planned |
+| 2 | Brute-force demo + defense pipeline | ⏳ Not started |
+| 3 | Monitoring (Prometheus + Grafana) | ⏳ Not started |
+| 4 | Blazor UI | ⏳ Not started |
+| 5 | Documentation + polish | ⏳ Not started |
+
+**Implemented so far:** TCP and UDP scanners (Strategy + keyed-DI factory),
+`POST /api/scan/tcp|udp` + `GET /api/scan/{id}/status`, request guardrails
+(port limit, active-job limit, private-network-only targets), persistent job
+store with startup recovery, unit and integration tests.
+
+Development history and design decisions: see [`DEVLOG.md`](./DEVLOG.md).
+
+---
+
 ## Architecture
 
 ```
