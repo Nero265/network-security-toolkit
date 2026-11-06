@@ -28,9 +28,16 @@ public sealed class ScanJobRecoveryServiceTests : IDisposable
 
         await service.StartAsync(CancellationToken.None);
         
-        Assert.Equal(ScanJobStatus.Failed, store.Get(pending.Id)!.Status);
-        Assert.Equal(ScanJobStatus.Failed, store.Get(running.Id)!.Status);
-        Assert.Equal("Interrupted by application restart", store.Get(running.Id)!.Error);
+        var failedPending = store.Get(pending.Id)!;
+        Assert.Equal(ScanJobStatus.Failed, failedPending.Status);
+        Assert.Equal("Interrupted by application restart", failedPending.Error);
+        Assert.NotNull(failedPending.CompletedAt);
+
+        var failedRunning = store.Get(running.Id)!;
+        Assert.Equal(ScanJobStatus.Failed, failedRunning.Status);
+        Assert.Equal("Interrupted by application restart", failedRunning.Error);
+        Assert.NotNull(failedRunning.CompletedAt);
+        
         Assert.Equal(ScanJobStatus.Completed, store.Get(completed.Id)!.Status);
         Assert.Equal(0, store.CountActive());
     }
