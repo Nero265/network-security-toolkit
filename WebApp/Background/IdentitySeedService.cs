@@ -33,7 +33,7 @@ public sealed class IdentitySeedService(
             if (!result.Succeeded)
             {
                 var errors = string.Join("; ", result.Errors.Select(e => e.Code));
-                throw new InvalidOperationException($"Seding account '{key}' failed: {errors}");
+                throw new InvalidOperationException($"Seeding account '{key}' failed: {errors}");
             }
             
             logger.LogInformation("Seeded test account {UserName}.", account.UserName);

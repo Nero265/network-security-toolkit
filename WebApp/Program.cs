@@ -42,6 +42,7 @@ builder.Services.AddSingleton<IScanJobStore, SqliteScanJobStore>();
 //register waiting queue as Singleton ( so controller and worker share the same channel)
 builder.Services.AddSingleton<IScanJobQueue, ChannelScanJobQueue>();
 
+builder.Services.AddHostedService<DatabaseMigrationService>();
 builder.Services.AddHostedService<ScanJobRecoveryService>(); //migration is first
 
 if (builder.Environment.IsDevelopment())

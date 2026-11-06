@@ -1,17 +1,16 @@
 ﻿using Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using WebApp.Components;
 
 namespace Tests.Jobs;
 
-internal sealed class SqliteTestDatabase
+internal sealed class SqliteTestDatabase : IDisposable
 {
     private readonly SqliteConnection _connection = new SqliteConnection("Data Source=:memory:");
-    
+
     public IDbContextFactory<AppDbContext> Factory { get; }
 
-    public SqliteTestDatabase()
+    public SqliteTestDatabase(bool migrate = true)
     {
         _connection.Open();
 
@@ -20,9 +19,12 @@ internal sealed class SqliteTestDatabase
             .Options;
 
         Factory = new TestDbContextFactory(options);
-        
-        using var db = Factory.CreateDbContext();
-        db.Database.Migrate();
+
+        if (migrate)
+        {
+            using var db = Factory.CreateDbContext();
+            db.Database.Migrate();
+        }
     }
 
     public void Dispose() => _connection.Dispose();
