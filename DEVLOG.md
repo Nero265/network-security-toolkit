@@ -610,7 +610,7 @@ limits, concurrent job cap, target restriction, structured logging.
 ## 2026-11-07 — Extract DatabaseMigrationService (#53)
 
 **Branch:** `refactor/extract-database-migration-service`  
-**Issues/PRs:** #53/#61
+**Issues/PRs:** #53/#62
 
 **Work done:**
 - Added `DatabaseMigrationService : IHostedService` that only applies pending EF Core migrations; logs the number of pending migrations before calling `MigrateAsync()`
@@ -634,7 +634,7 @@ limits, concurrent job cap, target restriction, structured logging.
   - Solution: committed the work in progress and rebased on `origin/main`
 
 **Found, not fixed (filed separately):**
-- Rider warns about unlimited string length on four `ScanJobEntity` properties (`Host`, `PortsJson`, `ResultsJson`, `Error`). No effect on SQLite, but worth fixing for portability; needs its own migration
+- Rider warns about unlimited string length on four `ScanJobEntity` properties (`Host`, `PortsJson`, `ResultsJson`, `Error`). No effect on SQLite, but worth fixing for portability; needs its own migration. See #61
 
 **Next:**
 - Open PR, `Closes #53`, confirm CI is green, squash merge
