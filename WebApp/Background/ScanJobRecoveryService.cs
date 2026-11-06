@@ -12,8 +12,6 @@ public sealed class ScanJobRecoveryService(
     {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        await db.Database.MigrateAsync(cancellationToken);
-
         var now = DateTimeOffset.UtcNow;
         var recovered = await db.ScanJobs
             .Where(j => j.Status == ScanJobStatus.Pending || j.Status == ScanJobStatus.Running)
