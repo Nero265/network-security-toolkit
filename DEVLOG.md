@@ -606,4 +606,39 @@ limits, concurrent job cap, target restriction, structured logging.
 - Phase 2: next issue in the brute-force module (`BruteForceSimulator` targeting this endpoint)
 
 ---
+
+## 2026-11-07 — Extract DatabaseMigrationService (#53)
+
+**Branch:** `refactor/extract-database-migration-service`  
+**Issues/PRs:** #53/#61
+
+**Work done:**
+- Added `DatabaseMigrationService : IHostedService` that only applies pending EF Core migrations; logs the number of pending migrations before calling `MigrateAsync()`
+- Removed `MigrateAsync()` from `ScanJobRecoveryService`; it now only marks leftover `Pending`/`Running` jobs as `Failed`
+- Registered the migration service first in `Program.cs`, ahead of recovery, `IdentitySeedService` (Development only) and `ScanBackgroundWorker`, with a comment explaining the order
+- Added a `migrate` parameter (default `true`) to the `SqliteTestDatabase` test helper, so tests can start from an empty database
+- Added `DatabaseMigrationServiceTests`: all migrations applied on a fresh database (including `ScanJobs` and Identity tables), and a second `StartAsync` call is a no-op
+- Verified manually on a fresh `app.db` (migration log, then seeding, login returns 401 for a wrong password) and on an existing one (no migration log, no duplicate accounts)
+
+**Why / decisions:**
+- **Own hosted service instead of a comment or a startup helper**: the dependency of recovery, seeder and worker on the schema is now visible in `Program.cs` instead of being a side effect of a service named "recovery". Registration order still carries the guarantee, but it is explicit and documented in one place
+- **Startup order guarantee**: hosted services are started one after another in registration order, each `StartAsync` is awaited before the next one (`HostOptions.ServicesStartConcurrently` is `false` by default in .NET 8+). If that option were ever set to `true`, this design would break and migration would need to become an explicit step before `app.Run()`
+- **Extra `GetPendingMigrationsAsync()` query kept**: `MigrateAsync()` already checks pending migrations internally, so this is one more query against `__EFMigrationsHistory` once at startup. Negligible on local SQLite; it buys a clear log line saying whether a migration was applied
+- **Recovery test unchanged**: the schema is created by `SqliteTestDatabase`, so `MigrateAsync()` in the service was already a no-op there. The test now documents that recovery works on an already migrated database
+- **Migration strategy unchanged**: still migrate-at-startup, single instance, SQLite. With a server database and several instances, migrations would become a separate deployment step (out of scope, see #53)
+
+**Problems & solutions:**
+- Problem: `SqliteTestDatabase` ran `Migrate()` in its constructor, so there was no way to test the migration service against an empty database
+  - Solution: optional `migrate` constructor parameter, default `true`, so existing tests are untouched
+- Problem: the branch was behind `main` (missing `.AddSignInManager()` / `AddAuthentication()` from #42), found while reviewing `Program.cs`
+  - Solution: committed the work in progress and rebased on `origin/main`
+
+**Found, not fixed (filed separately):**
+- Rider warns about unlimited string length on four `ScanJobEntity` properties (`Host`, `PortsJson`, `ResultsJson`, `Error`). No effect on SQLite, but worth fixing for portability; needs its own migration
+
+**Next:**
+- Open PR, `Closes #53`, confirm CI is green, squash merge
+- Phase 2: `BruteForceSimulator` against `POST /api/auth/login`; measure response times (unknown user vs wrong password) on the server side
+
+---
 <!-- Add new entries above this line, newest on top -->
