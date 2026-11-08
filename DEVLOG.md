@@ -641,4 +641,43 @@ limits, concurrent job cap, target restriction, structured logging.
 - Phase 2: `BruteForceSimulator` against `POST /api/auth/login`; measure response times (unknown user vs wrong password) on the server side
 
 ---
+
+## 2026-11-08 — BruteForceSimulator (#43)
+
+**Branch:** `feature/brute-force-simulator`  
+**Issues/PRs:** #43/#65
+
+**Work done:**
+- Added `BruteForceSimulator` to `Core/BruteForce/`: sends login attempts (`{ username, password }` JSON) to the project's own `POST /api/auth/login`, one password at a time, and returns a `BruteForceResult` (`Attempts`, `Elapsed`, `Outcome`)
+- `BruteForceOptions` (target URL, username, password list, `MaxAttempts`, `DelayBetweenAttempts`, configurable `BlockedStatusCodes`, default 423/429) and `BruteForceOutcome` (`Found` / `Blocked` / `Exhausted`)
+- Target guard inside the simulator: IP literals skip DNS, hostnames go through an injectable resolver (default `Dns.GetHostAddressesAsync`), and **all** resolved addresses must pass `PrivateNetworkRanges.IsAllowed`; the check runs before the first request is sent
+- Response handling: 2xx → `Found`, status in `BlockedStatusCodes` → `Blocked`, 401 → next password, anything else → `HttpRequestException`
+- `BruteForceSimulatorTests`: `Found`, `Exhausted`, `Blocked` (423 and 429), `MaxAttempts` cap, request body, public/mixed/private hostnames, non-http scheme, unexpected status, pre-cancelled token, cancellation during the delay, empty password list
+
+**Why / decisions:**
+- **`HttpClient` injected, fake `HttpMessageHandler` in tests**: no network in unit tests, and the test can inspect every request body. A small hand-written `StubHttpMessageHandler` (status chosen per attempt number) instead of `Moq.Protected`, which would need `SendAsync` as a string.
+- **Sequential loop, no `Parallel.ForEachAsync`**: unlike the scanners, the delay between attempts is the point of the tool, and parallel attempts would defeat it and distort the rate-limiting demo.
+- **Result has no found password**: results are logged and serialized, and the password is not needed — on `Found`, `Attempts` is the password's position in the caller's list.
+- **Unexpected status throws instead of becoming `Exhausted`**: a `500` or `404` must not make the demo claim "the defense held". Same principle as removing the broad `catch (Exception)` in the scanners.
+- **Cancellation throws `OperationCanceledException`**: idiomatic .NET and consistent with the scanners; the cost is that a partial result is lost. `HttpClient.Timeout` also surfaces as a cancellation, so it is told apart by `cancellationToken.IsCancellationRequested` and rethrown as `TimeoutException`.
+- **Guardrail inside the simulator, not the caller**: it cannot be bypassed by forgetting to call it. Unlike `ScanController` (which checks only `addresses[0]`), all resolved addresses must be allowed, because `HttpClient` may connect to any of them. A mixed result (`127.0.0.1` + a public address) is rejected, and has its own test.
+- **Kept hostname support instead of IP literals/`localhost` only**: more flexible for other setups (e.g. running against an IDS). Cost is one DNS lookup per run, which is negligible next to the HTTP attempts. To make the check testable without real DNS, the resolver is an optional constructor parameter; production code uses the default.
+- **Guardrail failure is an exception, not a result**: a target outside the allowed ranges is a configuration error, not an outcome of the attack.
+
+**Problems & solutions:**
+- *Problem*: `Exhausted` and `MaxAttempts` tests failed with `Expected: Exhausted, Actual: Found`.
+  - *Cause*: the final `return` after the loop used `BruteForceOutcome.Found` instead of `Exhausted` (copy mistake — the two returns are almost identical).
+  - *Solution*: fixed the outcome. Both tests exercise the "loop ended without a hit" path, which is why they caught it.
+- *Problem*: cancellation during `Task.Delay` was untested because every test used a zero delay.
+  - *Solution*: test with a one-hour delay and a token cancelled after 200 ms; it asserts that only one request was sent, and `WaitAsync(5s)` turns a missing token on `Task.Delay` into a failure instead of a one-hour hang.
+
+**Found, not fixed:**
+- **DNS rebinding** — the target is validated by one lookup, but `HttpClient` resolves the name again on connect (also true for `ScanController`). Accepted for now because targets are entered by the operator on their own network; becomes real if targets ever come from untrusted input. Filed as #64 (Backlog).
+- **Redirects** — `HttpClient` follows redirects by default, which could bypass the target check. The simulator is safe if auto-redirect is off (`302` is an unexpected status and throws), so whoever creates the `HttpClient` must set `AllowAutoRedirect = false`. Will be done in #63, the first real consumer.
+- **Timeout branch is untested** — hard to trigger deterministically with a stub, and small.
+
+**Next:**
+- Open PR #65 (`Closes #43`), confirm CI is green, squash merge.
+- #63 — ConsoleApp `brute-force` command (first consumer of the simulator, owns the `HttpClient` setup with `AllowAutoRedirect = false`).
+- Phase 2 continues with the defense pipeline (lockout → rate limiting → captcha).
 <!-- Add new entries above this line, newest on top -->
