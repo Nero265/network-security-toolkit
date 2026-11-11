@@ -1,5 +1,6 @@
 using Core;
 using Core.Jobs;
+using Core.Defense;
 using Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -66,6 +67,10 @@ builder.Services.AddKeyedSingleton<IPortScanner, TcpPortScanner>(ScanType.Tcp);
 builder.Services.AddKeyedSingleton<IPortScanner, UdpPortScanner>(ScanType.Udp);
 
 builder.Services.AddSingleton<IScannerFactory, ScannerFactory>();
+
+//Defense pipeline: empty for now (pass-through). Concrete handlers are added here,
+//in execution order: .Add(lockout).Add(rateLimit).Add(captcha)
+builder.Services.AddSingleton<IDefensePipeline>(_ => new DefensePipelineBuilder().Build());
 
 var app = builder.Build();
 

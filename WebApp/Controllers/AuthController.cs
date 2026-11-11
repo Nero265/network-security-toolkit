@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Core.Defense;
 using WebApp.DTOs;
 
 namespace WebApp.Controllers;
@@ -17,9 +18,11 @@ public sealed class AuthController(
     UserManager<IdentityUser> userManager,
     SignInManager<IdentityUser> signInManager,
     IPasswordHasher<IdentityUser> passwordHasher,
+    IDefensePipeline defensePipeline,
     ILogger<AuthController> logger) :  ControllerBase
 {
     private const string InvalidCredentialsMessage = "Invalid username or password.";
+    private const string BlockedMessage = "Too many requests. Try again later.";
 
     // Hash of a throwaway password: for unknown users we verify against it,
     // so the response time does not reveal whether the username exists.
@@ -29,7 +32,21 @@ public sealed class AuthController(
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
-        var sourceIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var ipAddress = HttpContext.Connection.RemoteIpAddress;
+        var sourceIp = ipAddress?.ToString() ?? "unknown";
+
+        var defense = await defensePipeline.EvaluateAsync(
+            new DefenseContext(request.Username, ipAddress),
+            HttpContext.RequestAborted);
+
+        if (!defense.IsAllowed)
+        {
+            logger.LogWarning(
+                "Login attempt for {Username} from {SourceIp} blocked by {BlockedBy}: {Reason}",
+                request.Username, sourceIp, defense.BlockedBy, defense.Reason);
+
+            return StatusCode(StatusCodes.Status429TooManyRequests, new { Message = BlockedMessage });
+        }
         var user = await userManager.FindByNameAsync(request.Username);
 
         LoginOutcome outcome;
