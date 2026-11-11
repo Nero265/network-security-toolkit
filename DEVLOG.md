@@ -680,4 +680,41 @@ limits, concurrent job cap, target restriction, structured logging.
 - Open PR #65 (`Closes #43`), confirm CI is green, squash merge.
 - #63 — ConsoleApp `brute-force` command (first consumer of the simulator, owns the `HttpClient` setup with `AllowAutoRedirect = false`).
 - Phase 2 continues with the defense pipeline (lockout → rate limiting → captcha).
+
+---
+
+## 2026-11-11 — Defense pipeline skeleton (Chain of Responsibility) (#44)
+
+**Branch:** `feature/defense-pipeline-skeleton`  
+**Issues/PRs:** #44/#66
+
+**Work done:**
+- Added the defense pipeline to `Core/Defense/`: `DefenseContext` (username + nullable IP), `DefenseResult` (allow / block + reason + `BlockedBy`), `DefenseDelegate`, `IDefenseHandler`, `IDefensePipeline`, `DefensePipelineBuilder`
+- `DefensePipelineBuilder.Build()` composes handlers in the order they were added into a single delegate; an empty chain is a pass-through (terminal delegate returns `Allowed`)
+- Registered the pipeline as a singleton in `Program.cs` (empty for now; concrete handlers will be added there in execution order)
+- `AuthController.Login` runs the request through the pipeline before the credential check; a blocked request gets `429` with a generic message and is logged at `Warning` with `BlockedBy`/`Reason`
+- `DefensePipelineTests` (ordering, short-circuit, result propagation, post-`next` observation, context/token passing, immutability after `Build()`) and `LoginDefensePipelineTests` (`WebApplicationFactory`: blocking pipeline gives `429` and never calls `FindByNameAsync`; empty pipeline keeps the old behavior)
+
+**Why / decisions:**
+- **Middleware-style handler (`next` delegate) instead of GoF `SetNext`**: the chain is immutable after `Build()` (no mutable `_next` field), short-circuiting is simply not calling `next`, and a handler can act after `next` returns (e.g. to record an outcome). Still Chain of Responsibility, in the same idiom as ASP.NET middleware.
+- **`Build()` walks the handlers backwards**: every handler needs a `next` that already exists, so the terminal delegate is created first and each handler wraps the previous one. `handler` and `following` are declared inside the loop so each lambda captures its own pair; capturing the loop-level `next` directly would make every handler call itself.
+- **Default is Allow**: the terminal delegate returns `Allowed`, so an empty chain needs no special case and handlers act as guards that block, not as approvers.
+- **`ValueTask` and a shared `DefenseResult.Allowed` instance**: in-memory handlers complete synchronously, so the common allow path allocates nothing per request. All closures are allocated once in `Build()`.
+- **`DefenseResult` with a private constructor + `Allowed`/`Block(...)` factories**: no inconsistent states (e.g. allowed with a reason); `Block` rejects empty `reason`/`blockedBy`.
+- **No `Timestamp` in `DefenseContext`**: handlers that need time (rate limiting, lockout) get `TimeProvider` via constructor, which is the standard way to control time in tests.
+- **`DefensePipeline` is `internal`, exposed as `IDefensePipeline`**: controller depends on the interface and can be tested with a fake; tests build pipelines through the builder.
+- **Pipeline runs before `FindByNameAsync`**: a blocked request never touches the database or the password hasher, so rejecting is cheap.
+- **`429` with a generic message, details only in the log**: returning `Reason` could later reveal that an account exists or is locked, which is exactly what the `DummyHash` in the controller prevents. `429` is also what `BruteForceSimulator` will treat as `Blocked`; `BlockedBy` will pick the status once real handlers exist (lockout → `423`, rate limit → `429`).
+- **Hand-written fake handlers instead of Moq in the pipeline tests**: they record into a shared list, so call order is a plain list comparison. The names `lockout`/`rateLimit`/`captcha` in the tests are just labels; the tests verify the chain mechanics, not any real defense.
+
+**Problems & solutions:**
+- No blocking problems in this task.
+
+**Open question (for the first concrete handler):**
+- The pipeline runs *before* the credential check, but lockout and rate limiting also need the *outcome* of an attempt (failed login). Two options: a separate `IDefenseOutcomeSink` (`RecordFailureAsync`) called by the controller after a failed check, or extending the pipeline to wrap the credential check. To be decided in the lockout issue. `AuthController` still uses `lockoutOnFailure: false` because lockout belongs to this pipeline.
+- Handlers will be singletons shared across requests, so their state (attempt counters, lockouts) must be thread-safe (`ConcurrentDictionary`, not plain fields).
+
+**Next:**
+- Open PR for `feature/defense-pipeline-skeleton`, `Closes #44`, confirm CI is green, squash merge.
+- Next issue: lockout handler (first concrete handler), including the outcome-reporting decision above.
 <!-- Add new entries above this line, newest on top -->
