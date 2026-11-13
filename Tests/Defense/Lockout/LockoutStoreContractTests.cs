@@ -8,6 +8,7 @@ public abstract class LockoutStoreContractTests
 {
     private const int MaxAttempts = 3;
     private static readonly TimeSpan Duration = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan Window = TimeSpan.FromMinutes(10);
 
     // xUnit creates a new instance per test, so every test gets its own clock.
     private readonly FakeTimeProvider _time = new();
@@ -15,7 +16,7 @@ public abstract class LockoutStoreContractTests
     protected abstract ILockoutStore CreateStore(LockoutOptions options, TimeProvider timeProvider);
 
     private ILockoutStore NewStore() => CreateStore(
-        new LockoutOptions { MaxFailedAttempts = MaxAttempts, LockoutDuration = Duration },
+        new LockoutOptions { MaxFailedAttempts = MaxAttempts, LockoutDuration = Duration, FailureWindow = Window },
         _time);
 
     private static LockoutKey Key(string user = "alice", string ip = "10.0.0.5") =>
@@ -157,5 +158,29 @@ public abstract class LockoutStoreContractTests
 
         Assert.False((await store.GetStatusAsync(Key("alice"))).IsLocked);
         Assert.False((await store.GetStatusAsync(Key("bob"))).IsLocked);
+    }
+    
+    [Fact]
+    public async Task Failures_OlderThanWindow_AreForgotten()
+    {
+        var store = NewStore();
+        await Fail(store, Key(), MaxAttempts - 1);
+
+        _time.Advance(Window);
+
+        Assert.Equal(0, (await store.GetStatusAsync(Key())).FailedAttempts);
+        Assert.Equal(1, (await store.RegisterFailureAsync(Key())).FailedAttempts);
+    }
+
+    [Fact]
+    public async Task Failures_JustInsideWindow_StillCount()
+    {
+        var store = NewStore();
+        await Fail(store, Key(), MaxAttempts - 1);
+
+        _time.Advance(Window - TimeSpan.FromMilliseconds(1));
+        var status = await store.RegisterFailureAsync(Key());
+
+        Assert.True(status.IsLocked);
     }
 }
