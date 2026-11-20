@@ -15,4 +15,7 @@ public sealed class LockoutOptions
     
     [Range(typeof(TimeSpan), "00:00:01", "7.00:00:00")]
     public TimeSpan FailureWindow { get; init; } = TimeSpan.FromMinutes(15);
+    
+    [Range(typeof(TimeSpan), "00:00:01", "1.00:00:00")]
+    public TimeSpan SweepInterval { get; init; } = TimeSpan.FromMinutes(1);
 }
